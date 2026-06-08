@@ -1,0 +1,13 @@
+module Test where
+
+import Daml.Script
+import Main
+
+test_create : Script ()
+test_create = script do
+  alice <- allocatePartyByHint (PartyIdHint "Alice")
+  contractId <- submit alice do
+    createCmd HelloWorld with
+      owner   = alice
+      message = "Hello Canton!"
+  return ()

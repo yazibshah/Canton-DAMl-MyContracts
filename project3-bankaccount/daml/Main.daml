@@ -1,0 +1,45 @@
+module Main where
+
+import Daml.Script
+
+template BankAccount
+  with
+    bank    : Party
+    owner   : Party
+    balance : Decimal
+  where
+    ensure balance >= 0.0
+    signatory bank
+    observer owner
+
+    choice Deposit : ContractId BankAccount
+      with amount : Decimal
+      controller bank
+      do
+        assert (amount > 0.0)
+        create this with
+          balance = balance + amount
+
+    choice Withdraw : ContractId BankAccount
+      with amount : Decimal
+      controller owner
+      do
+        assert (amount > 0.0)
+        assert (amount <= balance)
+        create this with
+          balance = balance - amount
+
+setup : Script ()
+setup = script do
+  meezan <- allocatePartyByHint (PartyIdHint "Meezan")
+  ali    <- allocatePartyByHint (PartyIdHint "Ali")
+  meezanId <- validateUserId "meezan"
+  aliId    <- validateUserId "ali"
+  createUser (User meezanId (Some meezan)) [CanActAs meezan]
+  createUser (User aliId    (Some ali))    [CanActAs ali]
+  submit meezan do
+    createCmd BankAccount with
+      bank    = meezan
+      owner   = ali
+      balance = 0.0
+  return ()

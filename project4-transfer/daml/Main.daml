@@ -1,0 +1,51 @@
+module Main where
+
+template BankAccount
+  with
+    bank    : Party
+    owner   : Party
+    balance : Decimal
+  where
+    ensure balance >= 0.0
+    signatory bank
+    observer owner
+
+    choice Deposit : ContractId BankAccount
+      with amount : Decimal
+      controller bank
+      do
+        assert (amount > 0.0)
+        create this with 
+          balance = balance + amount
+
+    choice Withdraw : ContractId BankAccount
+      with amount : Decimal
+      controller owner
+      do
+        assert (amount > 0.0)
+        assert (amount <= balance)
+        create this with
+          balance = balance - amount
+
+    choice Transfer : ContractId BankAccount
+      with
+        amount        : Decimal
+        receiverAccId : ContractId BankAccount
+      controller owner, bank
+      do
+        assert (amount > 0.0)
+        assert (amount <= balance)
+
+        -- Read receiver's account
+        receiverAcc <- fetch receiverAccId
+
+        -- Update sender balance
+        senderAcc <- create this with
+          balance = balance - amount
+
+        -- Update receiver balance
+        archive receiverAccId
+        create receiverAcc with
+          balance = receiverAcc.balance + amount
+
+        return senderAcc

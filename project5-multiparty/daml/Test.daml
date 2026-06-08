@@ -1,0 +1,40 @@
+module Test where
+
+import Daml.Script
+import Main
+
+test_interbank : Script ()
+test_interbank = script do
+
+  meezan <- allocatePartyByHint (PartyIdHint "Meezan")
+  hbl    <- allocatePartyByHint (PartyIdHint "HBL")
+  ali    <- allocatePartyByHint (PartyIdHint "Ali")
+  sara   <- allocatePartyByHint (PartyIdHint "Sara")
+
+  -- Meezan initiates transfer to HBL
+  transferId <- submit meezan do
+    createCmd InterBankTransfer with
+      senderBank   = meezan
+      receiverBank = hbl
+      sender       = ali
+      receiver     = sara
+      amount       = 500.0
+      status       = "PENDING"
+
+  -- Ali checks status
+  status <- submit ali do
+    exerciseCmd transferId GetStatus
+
+  debug status
+
+  -- HBL approves transfer
+  transferId <- submit hbl do
+    exerciseCmd transferId Approve
+
+  -- Ali checks status again
+  status <- submit ali do
+    exerciseCmd transferId GetStatus
+
+  debug status
+
+  return ()

@@ -1,0 +1,43 @@
+module Test where
+
+import Daml.Script
+import Main
+
+test_transfer : Script ()
+test_transfer = script do
+
+  meezan <- allocatePartyByHint (PartyIdHint "Meezan")
+  ali    <- allocatePartyByHint (PartyIdHint "Ali")
+  sara   <- allocatePartyByHint (PartyIdHint "Sara")
+    
+  -- Open Ali's account
+  aliAccId <- submit meezan do
+    createCmd BankAccount with
+      bank    = meezan
+      owner   = ali
+      balance = 0.0
+
+  -- Open Sara's account
+  saraAccId <- submit meezan do
+    createCmd BankAccount with
+      bank    = meezan
+      owner   = sara
+      balance = 0.0
+
+  -- Deposit 1000 into Ali's account
+  aliAccId <- submit meezan do
+    exerciseCmd aliAccId Deposit with
+      amount = 1000.0
+
+  -- Ali transfers 500 to Sara (bank must co-authorize to access Sara's account)
+  aliAccId <- submitMulti [ali, meezan] [] do
+    exerciseCmd aliAccId Transfer with
+      amount        = 500.0
+      receiverAccId = saraAccId
+
+  -- Ali withdraws 500 from his account
+  aliAccId <- submit ali do
+    exerciseCmd aliAccId Withdraw with
+      amount = 500.0
+
+  return ()

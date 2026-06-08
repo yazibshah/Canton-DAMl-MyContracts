@@ -1,0 +1,29 @@
+module Test where
+
+import Daml.Script
+import Main
+
+test_transfer : Script ()
+test_transfer = script do
+
+  meezan <- allocatePartyByHint (PartyIdHint "Meezan")
+  ali    <- allocatePartyByHint (PartyIdHint "Ali")
+  hbl    <- allocatePartyByHint (PartyIdHint "HBL")
+
+  -- Print party IDs
+  assertMsg ("Meezan: " <> partyToText meezan <> "\nAli:    " <> partyToText ali <> "\nHBL:    " <> partyToText hbl) False
+
+  -- Meezan creates asset for Ali
+  contractId <- submit meezan do
+    createCmd SimpleAsset with
+      issuer = meezan
+      
+      owner  = ali
+      name   = "PKR Coin"
+
+  -- Ali transfers to HBL
+  newContractId <- submit ali do
+    exerciseCmd contractId Transfer with
+      newOwner = hbl
+
+  return ()

@@ -1,0 +1,31 @@
+module Main where
+
+template InterBankTransfer
+  with
+    senderBank   : Party
+    receiverBank : Party
+    sender       : Party
+    receiver     : Party
+    amount       : Decimal
+    status       : Text
+  where
+    ensure amount > 0.0
+    signatory senderBank
+    observer receiverBank, sender, receiver
+
+    choice Approve : ContractId InterBankTransfer
+      controller receiverBank
+      do
+        create this with
+          status = "APPROVED"
+
+    choice Reject : ContractId InterBankTransfer
+      controller receiverBank
+      do
+        create this with
+          status = "REJECTED"
+
+    nonconsuming choice GetStatus : Text
+      controller sender
+      do
+        return status

@@ -1,0 +1,14 @@
+# DAML build artifacts
+.daml/
+
+# Node / UI
+node_modules/
+dist/
+build/
+
+# Logs
+log/
+*.log
+
+# OS / editor
+.DS_Store

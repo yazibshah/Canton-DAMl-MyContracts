@@ -1,0 +1,29 @@
+module Test where
+
+import Daml.Script
+import Main
+
+test_bankaccount : Script ()
+test_bankaccount = script do
+
+  meezan <- allocatePartyByHint (PartyIdHint "Meezan")
+  ali    <- allocatePartyByHint (PartyIdHint "Ali")
+
+  -- Meezan opens account for Ali with 0 balance
+  accountId <- submit meezan do
+    createCmd BankAccount with
+      bank    = meezan
+      owner   = ali
+      balance = 0.0
+
+  -- Meezan deposits 1000 PKR
+  accountId <- submit meezan do
+    exerciseCmd accountId Deposit with
+      amount = 1000.0
+
+  -- Ali withdraws 500 PKR
+  accountId <- submit ali do
+    exerciseCmd accountId Withdraw with
+      amount = 500.0
+
+  return ()

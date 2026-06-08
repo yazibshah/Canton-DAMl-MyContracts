@@ -1,0 +1,8 @@
+module Main where
+
+template HelloWorld
+  with
+    owner   : Party
+    message : Text
+  where
+    signatory owner

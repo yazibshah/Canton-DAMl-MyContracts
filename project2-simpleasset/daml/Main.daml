@@ -1,0 +1,16 @@
+module Main where
+
+template SimpleAsset
+  with
+    issuer : Party
+    owner  : Party
+    name   : Text
+  where
+    signatory issuer
+    observer owner
+
+    choice Transfer : ContractId SimpleAsset
+      with newOwner : Party
+      controller owner
+      do create this with
+           owner = newOwner
