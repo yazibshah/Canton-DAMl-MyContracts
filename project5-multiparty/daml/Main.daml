@@ -10,18 +10,20 @@ template InterBankTransfer
     status       : Text
   where
     ensure amount > 0.0
-    signatory senderBank
+    signatory senderBank, receiverBank
     observer receiverBank, sender, receiver
 
     choice Approve : ContractId InterBankTransfer
       controller receiverBank
       do
+        assert (status == "PENDING")
         create this with
           status = "APPROVED"
 
     choice Reject : ContractId InterBankTransfer
       controller receiverBank
       do
+        assert (status == "PENDING")
         create this with
           status = "REJECTED"
 
