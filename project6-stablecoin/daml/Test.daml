@@ -1,0 +1,38 @@
+module Test where
+
+import Daml.Script
+import Main
+
+test_stablecoin : Script ()
+test_stablecoin = script do
+
+  meezan <- allocatePartyByHint (PartyIdHint "Meezan")
+  ali    <- allocatePartyByHint (PartyIdHint "Ali")
+  sara   <- allocatePartyByHint (PartyIdHint "Sara")
+
+  -- Meezan mints 1000 PKR for Ali
+  coinId <- submitMulti [meezan, ali] [] do
+    createCmd PKRCoin with
+      issuer = meezan
+      owner  = ali
+      amount = 1000.0
+
+  -- Ali splits into 700 + 300
+  (coin700, coin300) <- submit ali do
+    exerciseCmd coinId Split with
+      splitAmount = 700.0
+
+  -- Ali transfers 700 to Sara
+  submit ali do
+    exerciseCmd coin700 Transfer with
+      newOwner = sara
+
+  -- Meezan burns Ali's 300
+  submit meezan do
+    exerciseCmd coin300 Burn
+
+  {- -- Meezan burns Ali's 300
+  submitMulti [meezan, ali] [] do
+    exerciseCmd coin300 Burn -}
+
+  return ()

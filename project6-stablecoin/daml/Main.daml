@@ -1,0 +1,31 @@
+module Main where
+
+template PKRCoin
+  with
+    issuer : Party
+    owner  : Party
+    amount : Decimal
+  where
+    ensure amount > 0.0
+    signatory issuer, owner
+
+    choice Transfer : ContractId PKRCoin
+      with newOwner : Party
+      controller owner
+      do
+        create this with
+          owner = newOwner
+
+    choice Split : (ContractId PKRCoin, ContractId PKRCoin)
+      with splitAmount : Decimal
+      controller owner
+      do
+        assert (splitAmount > 0.0)
+        assert (splitAmount < amount)
+        coin1 <- create this with amount = splitAmount
+        coin2 <- create this with amount = amount - splitAmount
+        return (coin1, coin2)
+
+    choice Burn : ()
+      controller issuer
+      do return ()

@@ -1,0 +1,47 @@
+module Main where
+
+-- STEP 1: The proposal (only issuer signs)
+template CoinProposal
+  with
+    issuer : Party
+    owner  : Party
+    amount : Decimal
+  where
+    ensure amount > 0.0
+    signatory issuer
+    observer owner
+
+    choice Accept : ContractId PKRCoin
+      controller owner
+      do
+        create PKRCoin with
+          issuer = issuer
+          owner  = owner
+          amount = amount
+
+    choice RejectProposal : ()
+      controller owner
+      do return ()
+
+    choice Withdraw : ()
+      controller issuer
+      do return ()
+
+-- STEP 2: The real coin (both signatures)
+template PKRCoin
+  with
+    issuer : Party
+    owner  : Party
+    amount : Decimal
+  where
+    ensure amount > 0.0
+    signatory issuer, owner
+
+    choice Transfer : ContractId CoinProposal
+      with newOwner : Party
+      controller owner
+      do
+        create CoinProposal with
+          issuer = issuer
+          owner  = newOwner
+          amount = amount

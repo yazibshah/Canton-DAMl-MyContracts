@@ -1,0 +1,35 @@
+module Test where
+
+import Daml.Script
+import Main
+
+test_propose_accept : Script ()
+test_propose_accept = script do
+
+  meezan <- allocatePartyByHint (PartyIdHint "Meezan")
+  ali    <- allocatePartyByHint (PartyIdHint "Ali")
+  sara   <- allocatePartyByHint (PartyIdHint "Sara")
+
+  -- Step 1: Meezan proposes coin (only Meezan signs)
+  proposalId <- submit meezan do
+    createCmd CoinProposal with
+      issuer = meezan
+      owner  = ali
+      amount = 1000.0
+
+  -- Step 2: Ali accepts (only Ali signs)
+  -- Now coin exists with BOTH signatures!
+  coinId <- submit ali do
+    exerciseCmd proposalId Accept
+
+  -- Step 3: Ali transfers to Sara
+  -- creates a proposal for Sara
+  saraProposalId <- submit ali do
+    exerciseCmd coinId Transfer with
+      newOwner = sara
+
+  -- Step 4: Sara accepts
+  saraCoinId <- submit sara do
+    exerciseCmd saraProposalId Accept
+
+  return ()
