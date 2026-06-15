@@ -1,31 +1,33 @@
 module Main where
 
--- STEP 1: The proposal (only issuer signs)
 template CoinProposal
   with
     issuer : Party
-    owner  : Party
+    sender : Party      -- Ali
+    receiver : Party    -- Sara
     amount : Decimal
   where
-    ensure amount > 0.0
-    signatory issuer
-    observer owner
+    signatory issuer, sender   -- both Meezan + Ali
+    observer receiver
 
+    -- Sara accepts → coin becomes hers
     choice Accept : ContractId PKRCoin
-      controller owner
+      controller receiver
       do
         create PKRCoin with
           issuer = issuer
-          owner  = owner
+          owner  = receiver
           amount = amount
 
-    choice RejectProposal : ()
-      controller owner
-      do return ()
+    -- Sara rejects → coin back to Ali
+    choice RejectProposal : ContractId PKRCoin
+      controller receiver
+      do
+        create PKRCoin with
+          issuer = issuer
+          owner  = sender      -- back to Ali ✅
+          amount = amount
 
-    choice Withdraw : ()
-      controller issuer
-      do return ()
 
 -- STEP 2: The real coin (both signatures)
 template PKRCoin
@@ -42,6 +44,7 @@ template PKRCoin
       controller owner
       do
         create CoinProposal with
-          issuer = issuer
-          owner  = newOwner
-          amount = amount
+          issuer   = issuer
+          sender   = owner       ← store Ali (current owner)
+          receiver = newOwner     ← Sara
+          amount   = amount

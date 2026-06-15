@@ -3,33 +3,108 @@ module Test where
 import Daml.Script
 import Main
 
-test_propose_accept : Script ()
-test_propose_accept = script do
+-- TEST 1: Happy path — mint, accept, transfer, accept
+test_happy_path : Script ()
+test_happy_path = script do
 
   meezan <- allocatePartyByHint (PartyIdHint "Meezan")
   ali    <- allocatePartyByHint (PartyIdHint "Ali")
   sara   <- allocatePartyByHint (PartyIdHint "Sara")
 
-  -- Step 1: Meezan proposes coin (only Meezan signs)
+  -- Meezan mints proposal for Ali (sender = meezan for fresh mint)
   proposalId <- submit meezan do
     createCmd CoinProposal with
-      issuer = meezan
-      owner  = ali
-      amount = 1000.0
+      issuer   = meezan
+      sender   = meezan
+      receiver = ali
+      amount   = 1000.0
 
-  -- Step 2: Ali accepts (only Ali signs)
-  -- Now coin exists with BOTH signatures!
+  -- Ali accepts -> real coin created
   coinId <- submit ali do
     exerciseCmd proposalId Accept
 
-  -- Step 3: Ali transfers to Sara
-  -- creates a proposal for Sara
+  -- Verify Ali owns 1000
+  Some coin <- queryContractId ali coinId
+  assertMsg "Ali should own the coin" (coin.owner == ali)
+  assertMsg "Amount should be 1000" (coin.amount == 1000.0)
+
+  -- Ali transfers to Sara
   saraProposalId <- submit ali do
     exerciseCmd coinId Transfer with
       newOwner = sara
 
-  -- Step 4: Sara accepts
+  -- Sara accepts
   saraCoinId <- submit sara do
     exerciseCmd saraProposalId Accept
+
+  -- Verify Sara owns 1000
+  Some saraCoin <- queryContractId sara saraCoinId
+  assertMsg "Sara should own the coin" (saraCoin.owner == sara)
+
+  return ()
+
+
+-- TEST 2: Reject returns coin to sender
+test_reject_returns_coin : Script ()
+test_reject_returns_coin = script do
+
+  meezan <- allocatePartyByHint (PartyIdHint "Meezan")
+  ali    <- allocatePartyByHint (PartyIdHint "Ali")
+  sara   <- allocatePartyByHint (PartyIdHint "Sara")
+
+  -- Mint to Ali
+  p0 <- submit meezan do
+    createCmd CoinProposal with
+      issuer   = meezan
+      sender   = meezan
+      receiver = ali
+      amount   = 500.0
+  aliCoin <- submit ali do exerciseCmd p0 Accept
+
+  -- Ali transfers to Sara
+  saraProp <- submit ali do
+    exerciseCmd aliCoin Transfer with newOwner = sara
+
+  -- Sara rejects -> coin returns to Ali
+  aliCoinBack <- submit sara do
+    exerciseCmd saraProp RejectProposal
+
+  -- Verify Ali got coin back
+  Some coin <- queryContractId ali aliCoinBack
+  assertMsg "Coin should return to Ali" (coin.owner == ali)
+  assertMsg "Amount should be preserved" (coin.amount == 500.0)
+
+  return ()
+
+
+-- TEST 3: Withdraw returns coin to sender
+test_withdraw_returns_coin : Script ()
+test_withdraw_returns_coin = script do
+
+  meezan <- allocatePartyByHint (PartyIdHint "Meezan")
+  ali    <- allocatePartyByHint (PartyIdHint "Ali")
+  sara   <- allocatePartyByHint (PartyIdHint "Sara")
+
+  -- Mint to Ali
+  p0 <- submit meezan do
+    createCmd CoinProposal with
+      issuer   = meezan
+      sender   = meezan
+      receiver = ali
+      amount   = 300.0
+  aliCoin <- submit ali do exerciseCmd p0 Accept
+
+  -- Ali transfers to Sara
+  saraProp <- submit ali do
+    exerciseCmd aliCoin Transfer with newOwner = sara
+
+  -- Ali withdraws before Sara responds -> coin returns to Ali
+  aliCoinBack <- submit ali do
+    exerciseCmd saraProp Withdraw
+
+  -- Verify Ali got coin back
+  Some coin <- queryContractId ali aliCoinBack
+  assertMsg "Coin should return to Ali" (coin.owner == ali)
+  assertMsg "Amount should be preserved" (coin.amount == 300.0)
 
   return ()

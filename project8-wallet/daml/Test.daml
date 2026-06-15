@@ -1,0 +1,48 @@
+module Test where
+
+import Daml.Script
+import Main
+
+test_wallet : Script ()
+test_wallet = script do
+
+  meezan <- allocatePartyByHint (PartyIdHint "Meezan")
+  ali    <- allocatePartyByHint (PartyIdHint "Ali")
+
+  -- Create account info
+  let aliInfo = AccountInfo with
+        accountNumber = "PK-12345"
+        branch        = "Karachi Main"
+
+  -- Open PKR wallet for Ali
+  walletId <- submit meezan do
+    createCmd Wallet with
+      bank     = meezan
+      owner    = ali
+      currency = PKR
+      balance  = 0.0
+      info     = aliInfo
+
+  -- Bank credits 1000 PKR
+  walletId <- submit meezan do
+    exerciseCmd walletId Credit with
+      amount = 1000.0
+
+  -- Ali checks balance
+  bal <- submit ali do
+    exerciseCmd walletId CheckBalance
+
+  debug ("Balance: " <> show bal)
+
+  -- Ali debits 300 PKR
+  walletId <- submit ali do
+    exerciseCmd walletId Debit with
+      amount = 300.0
+
+  -- Check final balance
+  bal2 <- submit ali do
+    exerciseCmd walletId CheckBalance
+
+  debug ("Final balance: " <> show bal2)
+
+  return ()

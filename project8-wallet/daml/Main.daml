@@ -1,0 +1,45 @@
+module Main where
+
+-- Custom enum type for currencies
+data Currency = PKR | USD | EUR
+  deriving (Eq, Show)
+
+-- Custom record type for account details
+data AccountInfo = AccountInfo with
+    accountNumber : Text
+    branch        : Text
+  deriving (Eq, Show)
+
+template Wallet
+  with
+    bank     : Party
+    owner    : Party
+    currency : Currency
+    balance  : Decimal
+    info     : AccountInfo
+  where
+    ensure balance >= 0.0
+    signatory bank
+    observer owner
+
+    choice Credit : ContractId Wallet
+      with amount : Decimal
+      controller bank
+      do
+        assert (amount > 0.0)
+        create this with
+          balance = balance + amount
+
+    choice Debit : ContractId Wallet
+      with amount : Decimal
+      controller owner
+      do
+        assert (amount > 0.0)
+        assert (amount <= balance)
+        create this with
+          balance = balance - amount
+
+    nonconsuming choice CheckBalance : Decimal
+      controller owner
+      do
+        return balance
