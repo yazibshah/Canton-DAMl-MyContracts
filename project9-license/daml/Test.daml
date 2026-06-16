@@ -1,0 +1,47 @@
+module Test where
+
+import Daml.Script
+import DA.Time
+import DA.Date
+import Main
+
+test_license : Script ()
+test_license = script do
+
+  meezan <- allocatePartyByHint (PartyIdHint "Meezan")
+  ali    <- allocatePartyByHint (PartyIdHint "Ali")
+
+  -- Get current time
+  now <- getTime
+
+  -- License valid for 30 days
+  let expiry = addRelTime now (days 30)
+
+  -- Meezan issues license to Ali
+  licenseId <- submit meezan do
+    createCmd License with
+      issuer    = meezan
+      holder    = ali
+      licenseId = "LIC-001"
+      issuedAt  = now
+      expiresAt = expiry
+
+  -- Ali checks if valid (should be True)
+  valid <- submit ali do
+    exerciseCmd licenseId IsValid
+  assertMsg "License should be valid" (valid == True)
+  debug ("Is valid: " <> show valid)
+
+  -- Meezan renews for 60 more days
+  licenseId <- submit meezan do
+    exerciseCmd licenseId Renew with
+      extraDays = 60
+
+  debug "License renewed for 60 more days"
+
+  -- Check valid again
+  valid2 <- submit ali do
+    exerciseCmd licenseId IsValid
+  assertMsg "License should still be valid" (valid2 == True)
+
+  return ()

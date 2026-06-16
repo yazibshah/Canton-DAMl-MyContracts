@@ -43,3 +43,20 @@ template Wallet
       controller owner
       do
         return balance
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        

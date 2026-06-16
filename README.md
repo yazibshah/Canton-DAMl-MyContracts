@@ -16,6 +16,7 @@ All projects use **Daml SDK 3.4.11**.
 | 6 | [project6-stablecoin](project6-stablecoin/) | A `PKRCoin` stablecoin with `Transfer`, `Split`, and `Burn` choices — issuer/owner roles and coin lifecycle. |
 | 7 | [project7-propose-accept](project7-propose-accept/) | The propose-accept pattern: a `CoinProposal` the receiver can `Accept` or `RejectProposal`, and the sender can `Withdraw` — transfers without requiring both parties' authority up front. |
 | 8 | [project8-wallet](project8-wallet/) | A `Wallet` with `Credit`/`Debit` choices and a nonconsuming `CheckBalance` — custom `Currency` enum and `AccountInfo` record types, plus the bank signatory / owner observer split. |
+| 9 | [project9-license](project9-license/) | A time-based `License` with `Renew` and `Revoke` choices and a nonconsuming `IsValid` — working with `Time`, `getTime`, and `addRelTime` for expiry logic. |
 
 ## Getting started
 

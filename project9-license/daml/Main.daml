@@ -1,0 +1,36 @@
+module Main where
+
+import DA.Time
+import DA.Date
+
+template License
+  with
+    issuer    : Party
+    holder    : Party
+    licenseId : Text
+    issuedAt  : Time
+    expiresAt : Time
+  where
+    signatory issuer
+    observer holder
+
+    -- Check if license is still valid
+    nonconsuming choice IsValid : Bool
+      controller holder
+      do
+        now <- getTime
+        return (now < expiresAt)
+
+    -- Renew the license by extending expiry
+    choice Renew : ContractId License
+      with extraDays : Int
+      controller issuer
+      do
+        let newExpiry = addRelTime expiresAt (days extraDays)
+        create this with
+          expiresAt = newExpiry
+
+    -- Revoke license before expiry
+    choice Revoke : ()
+      controller issuer
+      do return ()
