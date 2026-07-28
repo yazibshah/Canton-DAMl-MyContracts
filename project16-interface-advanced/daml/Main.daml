@@ -1,0 +1,102 @@
+module Main where
+
+-- The shared interface for ALL bank assets
+interface IAsset where
+  viewtype AssetView
+
+  getIssuer : Party
+  getOwner : Party
+  getValue : Decimal        -- value in PKR
+  getAssetType : Text
+
+  transferImpl : Party -> Update (ContractId IAsset)
+
+  -- Shared choice: all assets get this
+  choice TransferAsset : ContractId IAsset
+    with newOwner : Party
+    controller getOwner this
+    do
+      transferImpl this newOwner
+
+  -- Shared read-only choice
+  nonconsuming choice GetInfo : Text
+    controller getOwner this
+    do
+      return (getAssetType this <> " worth " <> show (getValue this) <> " PKR")
+
+data AssetView = AssetView with
+    issuer    : Party
+    owner     : Party
+    value     : Decimal
+    assetType : Text
+  deriving (Eq, Show)  
+
+
+-- Asset 1: Currency
+template PKRCoin
+  with
+    issuer : Party
+    owner  : Party
+    amount : Decimal
+  where
+    signatory issuer
+    observer owner
+
+    interface instance IAsset for PKRCoin where
+      view = AssetView with
+        issuer=issuer, owner=owner, value=amount, assetType="PKR Currency"
+      getIssuer = issuer
+      getOwner = owner
+      getValue = amount
+      getAssetType = "PKR Currency"
+      transferImpl newOwner = do
+        cid <- create this with owner = newOwner
+        pure (toInterfaceContractId @IAsset cid)
+
+
+-- Asset 2: Gold (grams, valued at 20000 PKR per gram)
+template GoldToken
+  with
+    issuer : Party
+    owner  : Party
+    grams  : Decimal
+  where
+    signatory issuer
+    observer owner
+
+    interface instance IAsset for GoldToken where
+      view = AssetView with
+        issuer, owner
+        value = grams * 20000.0
+        assetType = "Gold"
+      getIssuer = issuer
+      getOwner = owner
+      getValue = grams * 20000.0      -- calculated!
+      getAssetType = "Gold"
+      transferImpl newOwner = do
+        cid <- create this with owner = newOwner
+        pure (toInterfaceContractId @IAsset cid)
+
+
+-- Asset 3: Bond (face value + 10% premium)
+template BondToken
+  with
+    issuer    : Party
+    owner     : Party
+    faceValue : Decimal
+  where
+    signatory issuer
+    observer owner
+
+    interface instance IAsset for BondToken where
+      view = AssetView with
+        issuer, owner
+        value = faceValue * 1.1
+        assetType = "Government Bond"
+      getIssuer = issuer
+      getOwner = owner
+      getValue = faceValue * 1.1      -- calculated!
+      getAssetType = "Government Bond"
+      transferImpl newOwner = do
+        cid <- create this with owner = newOwner
+        pure (toInterfaceContractId @IAsset cid)

@@ -1,0 +1,62 @@
+module Test where
+
+import Daml.Script
+import Main
+
+test_multi_assets : Script ()
+test_multi_assets = script do
+
+  meezan <- allocatePartyByHint (PartyIdHint "Meezan")
+  ali    <- allocatePartyByHint (PartyIdHint "Ali")
+  sara   <- allocatePartyByHint (PartyIdHint "Sara")
+
+  -- Create THREE different assets for Ali
+  pkrCid <- submit meezan do
+    createCmd PKRCoin with
+      issuer = meezan
+      owner  = ali
+      amount = 5000.0
+
+  goldCid <- submit meezan do
+    createCmd GoldToken with
+      issuer = meezan
+      owner  = ali
+      grams  = 2.0
+
+  bondCid <- submit meezan do
+    createCmd BondToken with
+      issuer    = meezan
+      owner     = ali
+      faceValue = 10000.0
+
+  -- Retype each contract id to the interface (one-time, zero-cost)
+  let pkrAsset  = toInterfaceContractId @IAsset pkrCid
+      goldAsset = toInterfaceContractId @IAsset goldCid
+      bondAsset = toInterfaceContractId @IAsset bondCid
+
+  -- Use the SAME GetInfo choice on ALL three!
+  info1 <- submit ali do
+    exerciseCmd pkrAsset GetInfo
+  debug info1    -- "PKR Currency worth 5000.0 PKR"
+
+  info2 <- submit ali do
+    exerciseCmd goldAsset GetInfo
+  debug info2    -- "Gold worth 40000.0 PKR" (2 * 20000)
+
+  info3 <- submit ali do
+    exerciseCmd bondAsset GetInfo
+  debug info3    -- "Government Bond worth 11000.0 PKR" (10000 * 1.1)
+
+  -- Transfer ALL three using the SAME TransferAsset choice!
+  submit ali do
+    exerciseCmd pkrAsset TransferAsset with newOwner = sara
+
+  submit ali do
+    exerciseCmd goldAsset TransferAsset with newOwner = sara
+
+  submit ali do
+    exerciseCmd bondAsset TransferAsset with newOwner = sara
+
+  debug "All three assets transferred to Sara via ONE interface!"
+
+  return ()
