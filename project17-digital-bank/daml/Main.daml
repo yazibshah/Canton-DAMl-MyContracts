@@ -1,0 +1,212 @@
+module Main where
+
+import DA.Map (Map)
+import qualified DA.Map as Map
+import DA.Optional (fromOptional)
+import DA.Time
+
+-- ============ ENUM (P8, P12) ============
+data KycStatus = Pending | Approved | Rejected
+  deriving (Eq, Show)
+
+-- ============ RECORD (P8) ============
+data CustomerInfo = CustomerInfo with
+    fullName : Text
+    cnic     : Text
+  deriving (Eq, Show)
+
+-- ============ INTERFACE (P15-16) ============
+interface IAsset where
+  viewtype AssetView
+
+  getOwner : Party
+  getValue : Decimal
+  getAssetType : Text
+
+  transferProposalImpl : Party -> Update (ContractId TransferProposal)
+
+  -- Propose-Accept transfer (P7 pattern + interface!)
+  choice ProposeTransfer : ContractId TransferProposal
+    with newOwner : Party
+    controller getOwner this
+    do
+      transferProposalImpl this newOwner
+
+  nonconsuming choice GetInfo : Text
+    controller getOwner this
+    do
+      return (getAssetType this <> " worth " <> show (getValue this) <> " PKR")
+
+data AssetView = AssetView with
+    owner : Party
+    value : Decimal
+    assetType : Text
+  deriving (Eq, Show)
+
+-- ============ KYC with TIME (P9) + STATE MACHINE (P12) ============
+template KycRecord
+  with
+    bank      : Party
+    customer  : Party
+    regulator : Party            -- P5: multiple observers
+    info      : CustomerInfo
+    status    : KycStatus
+    expiresAt : Time
+  where
+    ensure info.cnic /= ""
+    signatory bank
+    observer customer, regulator
+
+    choice ApproveKyc : ContractId KycRecord
+      controller bank
+      do
+        assertMsg "Must be Pending" (status == Pending)
+        create this with status = Approved
+
+    choice RejectKyc : ContractId KycRecord
+      controller bank
+      do
+        assertMsg "Must be Pending" (status == Pending)
+        create this with status = Rejected
+
+    nonconsuming choice IsKycValid : Bool
+      controller bank
+      do
+        now <- getTime
+        return (status == Approved && now < expiresAt)
+
+-- ============ PROPOSE-ACCEPT (P7) ============
+template TransferProposal
+  with
+    issuer   : Party
+    sender   : Party
+    receiver : Party
+    value    : Decimal
+    assetType : Text
+  where
+    ensure value > 0.0
+    signatory issuer, sender
+    observer receiver
+
+    choice AcceptTransfer : ContractId IAsset
+      controller receiver
+      do
+        if assetType == "Gold"
+          then do
+            cid <- create GoldAsset with
+              issuer = issuer
+              owner = receiver
+              grams = value / 20000.0
+            pure (toInterfaceContractId @IAsset cid)
+          else do
+            cid <- create PKRAsset with
+              issuer = issuer
+              owner = receiver
+              amount = value
+            pure (toInterfaceContractId @IAsset cid)
+
+    choice RejectTransfer : ContractId IAsset
+      controller receiver
+      do
+        if assetType == "Gold"
+          then do
+            cid <- create GoldAsset with
+              issuer = issuer
+              owner = sender
+              grams = value / 20000.0
+            pure (toInterfaceContractId @IAsset cid)
+          else do
+            cid <- create PKRAsset with
+              issuer = issuer
+              owner = sender
+              amount = value
+            pure (toInterfaceContractId @IAsset cid)
+
+-- ============ ASSET 1: PKR (P16) ============
+template PKRAsset
+  with
+    issuer : Party
+    owner  : Party
+    amount : Decimal
+  where
+    ensure amount > 0.0
+    signatory issuer
+    observer owner
+
+    -- P3 (assert) + P4 (fetch, archive): merge two PKR assets into one
+    choice MergePkr : ContractId PKRAsset
+      with
+        otherCid : ContractId PKRAsset
+      controller owner
+      do
+        other <- fetch otherCid
+        assert (other.issuer == issuer)
+        assertMsg "Must own both assets" (other.owner == owner)
+        archive otherCid
+        create this with amount = amount + other.amount
+
+    interface instance IAsset for PKRAsset where
+      view = AssetView with owner, value = amount, assetType = "PKR"
+      getOwner = owner
+      getValue = amount
+      getAssetType = "PKR"
+      transferProposalImpl newOwner = do
+        create TransferProposal with
+          issuer = issuer
+          sender = owner
+          receiver = newOwner
+          value = amount
+          assetType = "PKR"
+
+-- ============ ASSET 2: GOLD (P16, calculated) ============
+template GoldAsset
+  with
+    issuer : Party
+    owner  : Party
+    grams  : Decimal
+  where
+    ensure grams > 0.0
+    signatory issuer
+    observer owner
+
+    interface instance IAsset for GoldAsset where
+      view = AssetView with owner, value = grams * 20000.0, assetType = "Gold"
+      getOwner = owner
+      getValue = grams * 20000.0
+      getAssetType = "Gold"
+      transferProposalImpl newOwner = do
+        create TransferProposal with
+          issuer = issuer
+          sender = owner
+          receiver = newOwner
+          value = grams * 20000.0
+          assetType = "Gold"
+
+-- ============ REGISTRY with MAP (P13, P14) ============
+template CustomerRegistry
+  with
+    bank      : Party
+    customers : Map Party Text    -- party -> CNIC
+  where
+    signatory bank
+
+    choice RegisterCustomer : ContractId CustomerRegistry
+      with
+        customer : Party
+        cnic     : Text
+      controller bank
+      do
+        assertMsg "CNIC required" (cnic /= "")
+        create this with
+          customers = Map.insert customer cnic customers
+
+    nonconsuming choice GetCustomerCnic : Text
+      with customer : Party
+      controller bank
+      do
+        return (fromOptional "NOT-FOUND" (Map.lookup customer customers))
+
+    nonconsuming choice CustomerCount : Int
+      controller bank
+      do
+        return (Map.size customers)

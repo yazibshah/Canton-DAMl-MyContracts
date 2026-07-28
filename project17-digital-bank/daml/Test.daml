@@ -1,0 +1,164 @@
+module Test where
+
+import Daml.Script
+import qualified DA.Map as Map
+import DA.Time
+import Main
+
+test_full_bank : Script ()
+test_full_bank = script do
+
+  meezan <- allocatePartyByHint (PartyIdHint "Meezan")
+  ali    <- allocatePartyByHint (PartyIdHint "Ali")
+  sara   <- allocatePartyByHint (PartyIdHint "Sara")
+  sbp    <- allocatePartyByHint (PartyIdHint "SBP")
+
+  -- ===== 1. KYC with Time (P9) + record (P8) =====
+  now <- getTime
+  let expiry = addRelTime now (days 365)
+
+  kycId <- submit meezan do
+    createCmd KycRecord with
+      bank      = meezan
+      customer  = ali
+      regulator = sbp
+      info      = CustomerInfo with fullName = "Ali Khan", cnic = "42101-1234567-1"
+      status    = Pending
+      expiresAt = expiry
+
+  -- ===== 1b. Multiple observers (P5): regulator can see KYC =====
+  Some kyc <- queryContractId sbp kycId
+  debug ("SBP sees KYC for: " <> kyc.info.fullName)
+
+  -- ===== 2. State machine (P12) =====
+  kycId <- submit meezan do
+    exerciseCmd kycId ApproveKyc
+
+  valid <- submit meezan do
+    exerciseCmd kycId IsKycValid
+  assertMsg "KYC should be valid" (valid == True)
+  debug "KYC approved and valid ✓"
+
+  -- ===== 3. Registry with Map (P14) =====
+  regId <- submit meezan do
+    createCmd CustomerRegistry with
+      bank = meezan
+      customers = Map.empty
+
+  regId <- submit meezan do
+    exerciseCmd regId RegisterCustomer with
+      customer = ali
+      cnic = "42101-1234567-1"
+
+  count <- submit meezan do
+    exerciseCmd regId CustomerCount
+  assertMsg "Should have 1 customer" (count == 1)
+  debug ("Registered customers: " <> show count)
+
+  -- ===== 4. Issue assets via interface (P16) =====
+  pkrCid <- submit meezan do
+    createCmd PKRAsset with
+      issuer = meezan
+      owner  = ali
+      amount = 50000.0
+
+  goldCid <- submit meezan do
+    createCmd GoldAsset with
+      issuer = meezan
+      owner  = ali
+      grams  = 2.0
+
+  -- ===== 5. Polymorphic GetInfo (P16) =====
+  info1 <- submit ali do exerciseCmd (toInterfaceContractId @IAsset pkrCid) GetInfo
+  debug info1
+  info2 <- submit ali do exerciseCmd (toInterfaceContractId @IAsset goldCid) GetInfo
+  debug info2
+
+  -- ===== 6. Propose-Accept transfer (P7 + interface!) =====
+  propId <- submit ali do
+    exerciseCmd (toInterfaceContractId @IAsset goldCid) ProposeTransfer with newOwner = sara
+
+  newGoldCid <- submit sara do
+    exerciseCmd propId AcceptTransfer
+
+  info3 <- submit sara do exerciseCmd newGoldCid GetInfo
+  debug ("Sara's asset: " <> info3)
+
+  -- ===== 7. Old contract archived (P13 check) =====
+  oldCheck <- queryContractId meezan goldCid
+  assertMsg "Old gold archived" (oldCheck == None)
+  debug "Old gold contract archived ✓"
+
+  -- ===== 8. Merge assets: fetch + archive (P3-4) =====
+  pkr2Cid <- submit meezan do
+    createCmd PKRAsset with
+      issuer = meezan
+      owner  = ali
+      amount = 10000.0
+
+  mergedCid <- submit ali do
+    exerciseCmd pkrCid MergePkr with otherCid = pkr2Cid
+
+  Some merged <- queryContractId ali mergedCid
+  assertMsg "Merged should be 60000" (merged.amount == 60000.0)
+  debug ("Merged PKR asset: " <> show merged.amount)
+
+  return ()
+
+
+-- Reject test (P7 money-safety!)
+test_reject_returns : Script ()
+test_reject_returns = script do
+
+  meezan <- allocatePartyByHint (PartyIdHint "Meezan")
+  ali    <- allocatePartyByHint (PartyIdHint "Ali")
+  sara   <- allocatePartyByHint (PartyIdHint "Sara")
+
+  pkrCid <- submit meezan do
+    createCmd PKRAsset with
+      issuer = meezan
+      owner  = ali
+      amount = 5000.0
+
+  propId <- submit ali do
+    exerciseCmd (toInterfaceContractId @IAsset pkrCid) ProposeTransfer with newOwner = sara
+
+  -- Sara rejects -> asset back to Ali
+  backCid <- submit sara do
+    exerciseCmd propId RejectTransfer
+
+  info <- submit ali do exerciseCmd backCid GetInfo
+  debug ("Ali got back: " <> info)
+
+  return ()
+
+
+-- Protection tests (submitMustFail)
+test_protections : Script ()
+test_protections = script do
+
+  meezan <- allocatePartyByHint (PartyIdHint "Meezan")
+  ali    <- allocatePartyByHint (PartyIdHint "Ali")
+  sbp    <- allocatePartyByHint (PartyIdHint "SBP")
+  now <- getTime
+
+  kycId <- submit meezan do
+    createCmd KycRecord with
+      bank = meezan
+      customer = ali
+      regulator = sbp
+      info = CustomerInfo with fullName = "Ali", cnic = "42101-1"
+      status = Pending
+      expiresAt = addRelTime now (days 365)
+
+  -- Approve once
+  kycId <- submit meezan do
+    exerciseCmd kycId ApproveKyc
+
+  -- Cannot approve twice (state machine protection)
+  submitMustFail meezan do
+    exerciseCmd kycId ApproveKyc
+
+  debug "Double-approve correctly blocked ✓"
+
+  return ()
