@@ -1,7 +1,6 @@
 module Main where
 
 import DA.Time
-import DA.Date
 
 template License
   with
@@ -13,6 +12,11 @@ template License
   where
     signatory issuer
     observer holder
+
+    -- Reject invalid state at creation time
+    ensure issuer /= holder
+         && licenseId /= ""
+         && expiresAt > issuedAt
 
     -- Check if license is still valid
     nonconsuming choice IsValid : Bool
@@ -26,7 +30,13 @@ template License
       with extraDays : Int
       controller issuer
       do
-        let newExpiry = addRelTime expiresAt (days extraDays)
+        -- Only positive extensions are allowed; never shrink the expiry
+        assertMsg "extraDays must be positive" (extraDays > 0)
+        now <- getTime
+        -- Extend from whichever is later: now or the current expiry, 
+        -- so an already-expired license is renewed forward from now.
+        let base = if now > expiresAt then now else expiresAt
+        let newExpiry = addRelTime base (days extraDays)
         create this with
           expiresAt = newExpiry
 
