@@ -1,0 +1,36 @@
+module Main where
+
+template Escrow
+  with
+    buyer    : Party
+    seller   : Party
+    agent    : Party
+    amount   : Decimal
+    itemName : Text
+    status   : Text          -- "HELD", "RELEASED", "REFUNDED"
+  where
+    ensure amount > 0.0
+    signatory buyer, agent
+    observer seller
+
+    -- Item delivered: release to seller
+    choice Release : ContractId Escrow
+      controller agent
+      do
+        assertMsg "Escrow not in HELD state" (status == "HELD")
+        create this with
+          status = "RELEASED"
+
+    -- Item not delivered: refund to buyer
+    choice Refund : ContractId Escrow
+      controller agent
+      do
+        assertMsg "Escrow not in HELD state" (status == "HELD")
+        create this with
+          status = "REFUNDED"
+
+    -- Check current status
+    nonconsuming choice GetStatus : Text
+      controller buyer
+      do
+        return status

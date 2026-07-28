@@ -1,0 +1,86 @@
+module Test where
+
+import Daml.Script
+import Main
+
+-- Test 1: Release flow
+test_release : Script ()
+test_release = script do
+
+  ali   <- allocatePartyByHint (PartyIdHint "Ali")
+  sara  <- allocatePartyByHint (PartyIdHint "Sara")
+  agent <- allocatePartyByHint (PartyIdHint "Agent")
+
+  escrowId <- submitMulti [ali, agent] [] do
+    createCmd Escrow with
+      buyer    = ali
+      seller   = sara
+      agent    = agent
+      amount   = 50000.0
+      itemName = "Used Car"
+      status   = "HELD"
+
+  s1 <- submit ali do exerciseCmd escrowId GetStatus
+  assertMsg "Should be HELD" (s1 == "HELD")
+  debug ("Status: " <> s1)
+
+  escrowId <- submit agent do exerciseCmd escrowId Release
+
+  s2 <- submit ali do exerciseCmd escrowId GetStatus
+  assertMsg "Should be RELEASED" (s2 == "RELEASED")
+  debug ("Status: " <> s2)
+
+  return ()
+
+
+-- Test 2: Refund flow
+test_refund : Script ()
+test_refund = script do
+
+  ali   <- allocatePartyByHint (PartyIdHint "Ali")
+  sara  <- allocatePartyByHint (PartyIdHint "Sara")
+  agent <- allocatePartyByHint (PartyIdHint "Agent")
+
+  escrowId <- submitMulti [ali, agent] [] do
+    createCmd Escrow with
+      buyer    = ali
+      seller   = sara
+      agent    = agent
+      amount   = 50000.0
+      itemName = "Used Car"
+      status   = "HELD"
+
+  escrowId <- submit agent do exerciseCmd escrowId Refund
+
+  s <- submit ali do exerciseCmd escrowId GetStatus
+  assertMsg "Should be REFUNDED" (s == "REFUNDED")
+  debug ("Status: " <> s)
+
+  return ()
+
+
+-- Test 3: Cannot release twice
+test_no_double_release : Script ()
+test_no_double_release = script do
+
+  ali   <- allocatePartyByHint (PartyIdHint "Ali")
+  sara  <- allocatePartyByHint (PartyIdHint "Sara")
+  agent <- allocatePartyByHint (PartyIdHint "Agent")
+
+  escrowId <- submitMulti [ali, agent] [] do
+    createCmd Escrow with
+      buyer    = ali
+      seller   = sara
+      agent    = agent
+      amount   = 50000.0
+      itemName = "Used Car"
+      status   = "HELD"
+
+  escrowId <- submit agent do exerciseCmd escrowId Release
+
+  -- Second release must fail
+  submitMustFail agent do exerciseCmd escrowId Release
+
+  debug "Double release correctly prevented"
+
+  return ()
