@@ -17,6 +17,14 @@ All projects use **Daml SDK 3.4.11**.
 | 7 | [project7-propose-accept](project7-propose-accept/) | The propose-accept pattern: a `CoinProposal` the receiver can `Accept` or `RejectProposal`, and the sender can `Withdraw` — transfers without requiring both parties' authority up front. |
 | 8 | [project8-wallet](project8-wallet/) | A `Wallet` with `Credit`/`Debit` choices and a nonconsuming `CheckBalance` — custom `Currency` enum and `AccountInfo` record types, plus the bank signatory / owner observer split. |
 | 9 | [project9-license](project9-license/) | A time-based `License` with `Renew` and `Revoke` choices and a nonconsuming `IsValid` — working with `Time`, `getTime`, and `addRelTime` for expiry logic. |
+| 10 | [project10-escrow](project10-escrow/) | An `Escrow` signed by buyer and agent with `Release`/`Refund` choices — a neutral third party as co-signatory, and a `status` field guarding state transitions. |
+| 11 | [project11-loan](project11-loan/) | A `LoanApplication` moving through `ManagerApprove` → `RiskApprove` → `Disburse` — a multi-step approval workflow driven by a `LoanStatus` enum. |
+| 13 | [project13-keys](project13-keys/) | A `BankAccount` plus an `AccountRegistry` holding a pointer to the current account contract — keeping a stable handle to a contract that is recreated on every choice. |
+| 14 | [project14-collections](project14-collections/) | A `BankLedger` keeping every customer balance in one `Map Party Decimal` — `DA.Map` insert/lookup/size and `DA.Optional` defaults. |
+| 15 | [project15-interfaces](project15-interfaces/) | An `IToken` interface with a `TokenView` viewtype, implemented by both `PKRCoin` and `USDCoin` — one shared `Transfer` choice across different templates. |
+| 16 | [project16-interface-advanced](project16-interface-advanced/) | An `IAsset` interface implemented by `PKRCoin`, `GoldToken`, and `BondToken` — interface-level choices (`TransferAsset`, `GetInfo`) and computed view values. |
+| 17 | [project17-digital-bank](project17-digital-bank/) | A capstone digital bank: KYC records with expiry, an `IAsset` interface over PKR and gold, propose-accept transfers, asset merging, and a `Map`-backed customer registry. |
+| 18 | [project18-exceptions](project18-exceptions/) | Custom `exception` types (`InsufficientFunds`, `AccountFrozen`) with `throw`, and a `SafeWithdraw` choice using `try`/`catch` — error handling inside choices. |
 
 ## Getting started
 
