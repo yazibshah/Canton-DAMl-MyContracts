@@ -1,0 +1,158 @@
+module Test where
+
+import Daml.Script
+import Main
+
+-- Test 1: Create account and registry
+test_create : Script ()
+test_create = script do
+
+  meezan <- allocatePartyByHint (PartyIdHint "Meezan")
+  ali    <- allocatePartyByHint (PartyIdHint "Ali")
+
+  -- Create the account
+  accCid <- submit meezan do
+    createCmd BankAccount with
+      bank          = meezan
+      owner         = ali
+      accountNumber = "ACC-001"
+      balance       = 0.0
+
+  -- Create registry pointing to the account
+  regCid <- submit meezan do
+    createCmd AccountRegistry with
+      bank          = meezan
+      accountNumber = "ACC-001"
+      accountCid    = accCid
+
+  -- Verify registry points to the account
+  Some reg <- queryContractId meezan regCid
+  assertMsg "Registry should point to account" (reg.accountCid == accCid)
+  debug "Account and registry created"
+
+  return ()
+
+
+-- Test 2: Deposit and update registry pointer
+test_deposit : Script ()
+test_deposit = script do
+
+  meezan <- allocatePartyByHint (PartyIdHint "Meezan")
+  ali    <- allocatePartyByHint (PartyIdHint "Ali")
+
+  accCid <- submit meezan do
+    createCmd BankAccount with
+      bank          = meezan
+      owner         = ali
+      accountNumber = "ACC-001"
+      balance       = 0.0
+
+  regCid <- submit meezan do
+    createCmd AccountRegistry with
+      bank          = meezan
+      accountNumber = "ACC-001"
+      accountCid    = accCid
+
+  -- Deposit 1000 (account contract changes)
+  newAccCid <- submit meezan do
+    exerciseCmd accCid Deposit with amount = 1000.0
+
+  -- Update registry to point to new account
+  regCid <- submit meezan do
+    exerciseCmd regCid UpdatePointer with newCid = newAccCid
+
+  -- Look up account via registry, check balance
+  Some reg <- queryContractId meezan regCid
+  Some acc <- queryContractId meezan reg.accountCid
+  assertMsg "Balance should be 1000" (acc.balance == 1000.0)
+  debug ("Balance: " <> show acc.balance)
+
+  return ()
+
+
+-- Test 3: Full deposit + withdraw cycle
+test_full_cycle : Script ()
+test_full_cycle = script do
+
+  meezan <- allocatePartyByHint (PartyIdHint "Meezan")
+  ali    <- allocatePartyByHint (PartyIdHint "Ali")
+
+  accCid <- submit meezan do
+    createCmd BankAccount with
+      bank          = meezan
+      owner         = ali
+      accountNumber = "ACC-001"
+      balance       = 0.0
+
+  regCid <- submit meezan do
+    createCmd AccountRegistry with
+      bank          = meezan
+      accountNumber = "ACC-001"
+      accountCid    = accCid
+
+  -- Deposit 1000
+  accCid2 <- submit meezan do
+    exerciseCmd accCid Deposit with amount = 1000.0
+  regCid <- submit meezan do
+    exerciseCmd regCid UpdatePointer with newCid = accCid2
+
+  -- Withdraw 300 (find current account via registry)
+  Some reg <- queryContractId meezan regCid
+  accCid3 <- submit ali do
+    exerciseCmd reg.accountCid Withdraw with amount = 300.0
+  regCid <- submit meezan do
+    exerciseCmd regCid UpdatePointer with newCid = accCid3
+
+  -- Final balance check
+  Some regFinal <- queryContractId meezan regCid
+  Some accFinal <- queryContractId meezan regFinal.accountCid
+  assertMsg "Final balance should be 700" (accFinal.balance == 700.0)
+  debug ("Final balance: " <> show accFinal.balance)
+
+  return ()
+
+
+-- Test 4: Cannot withdraw more than balance
+test_overdraw_fails : Script ()
+test_overdraw_fails = script do
+
+  meezan <- allocatePartyByHint (PartyIdHint "Meezan")
+  ali    <- allocatePartyByHint (PartyIdHint "Ali")
+
+  accCid <- submit meezan do
+    createCmd BankAccount with
+      bank          = meezan
+      owner         = ali
+      accountNumber = "ACC-001"
+      balance       = 100.0
+
+  -- Try to withdraw 500 from 100 (must fail)
+  submitMustFail ali do
+    exerciseCmd accCid Withdraw with amount = 500.0
+
+  debug "Overdraw correctly prevented"
+
+  return ()
+
+
+-- Test 5: Only owner can withdraw (bank cannot)
+test_only_owner_withdraws : Script ()
+test_only_owner_withdraws = script do
+
+  meezan <- allocatePartyByHint (PartyIdHint "Meezan")
+  ali    <- allocatePartyByHint (PartyIdHint "Ali")
+
+  accCid <- submit meezan do
+    createCmd BankAccount with
+      bank          = meezan
+      owner         = ali
+      accountNumber = "ACC-001"
+      balance       = 1000.0
+
+  -- Bank tries to withdraw (must fail - only owner can)
+  submitMustFail meezan do
+    exerciseCmd accCid Withdraw with amount = 100.0
+
+  debug "Bank correctly cannot withdraw owner's money"
+
+  return ()

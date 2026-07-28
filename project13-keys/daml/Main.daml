@@ -1,0 +1,41 @@
+module Main where
+
+template BankAccount
+  with
+    bank          : Party
+    owner         : Party
+    accountNumber : Text
+    balance       : Decimal
+  where
+    ensure balance >= 0.0
+    signatory bank
+    observer owner
+
+    choice Deposit : ContractId BankAccount
+      with amount : Decimal
+      controller bank
+      do
+        assert (amount > 0.0)
+        create this with balance = balance + amount
+
+    choice Withdraw : ContractId BankAccount
+      with amount : Decimal
+      controller owner
+      do
+        assert (amount > 0.0)
+        assert (amount <= balance)
+        create this with balance = balance - amount
+
+
+template AccountRegistry
+  with
+    bank          : Party
+    accountNumber : Text
+    accountCid    : ContractId BankAccount
+  where
+    signatory bank
+
+    choice UpdatePointer : ContractId AccountRegistry
+      with newCid : ContractId BankAccount
+      controller bank
+      do create this with accountCid = newCid
