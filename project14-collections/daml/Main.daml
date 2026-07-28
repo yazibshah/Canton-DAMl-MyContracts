@@ -1,0 +1,49 @@
+module Main where
+
+import DA.Map (Map)
+import qualified DA.Map as Map
+import DA.Optional (fromOptional)
+
+template BankLedger
+  with
+    bank     : Party
+    balances : Map Party Decimal   -- many balances in ONE contract!
+  where
+    signatory bank
+
+    -- Add a new customer with starting balance
+    choice AddCustomer : ContractId BankLedger
+      with
+        customer : Party
+        initial  : Decimal
+      controller bank
+      do
+        assert (initial >= 0.0)
+        create this with
+          balances = Map.insert customer initial balances
+
+    -- Deposit to a customer's balance
+    choice DepositTo : ContractId BankLedger
+      with
+        customer : Party
+        amount   : Decimal
+      controller bank
+      do
+        assert (amount > 0.0)
+        let current = fromOptional 0.0 (Map.lookup customer balances)
+        let newBalance = current + amount
+        create this with
+          balances = Map.insert customer newBalance balances
+
+    -- Check a customer's balance
+    nonconsuming choice GetBalance : Decimal
+      with customer : Party
+      controller bank
+      do
+        return (fromOptional 0.0 (Map.lookup customer balances))
+
+    -- Count total customers
+    nonconsuming choice CustomerCount : Int
+      controller bank
+      do
+        return (Map.size balances)

@@ -1,0 +1,56 @@
+module Test where
+
+import Daml.Script
+import qualified DA.Map as Map
+import Main
+
+test_collections : Script ()
+test_collections = script do
+
+  meezan <- allocatePartyByHint (PartyIdHint "Meezan")
+  ali    <- allocatePartyByHint (PartyIdHint "Ali")
+  sara   <- allocatePartyByHint (PartyIdHint "Sara")
+
+  -- Create ledger with empty balances
+  ledgerId <- submit meezan do
+    createCmd BankLedger with
+      bank     = meezan
+      balances = Map.empty
+
+  -- Add Ali with 1000
+  ledgerId <- submit meezan do
+    exerciseCmd ledgerId AddCustomer with
+      customer = ali
+      initial  = 1000.0
+
+  -- Add Sara with 500
+  ledgerId <- submit meezan do
+    exerciseCmd ledgerId AddCustomer with
+      customer = sara
+      initial  = 500.0
+
+  -- Check customer count (should be 2)
+  count <- submit meezan do
+    exerciseCmd ledgerId CustomerCount
+  assertMsg "Should have 2 customers" (count == 2)
+  debug ("Customer count: " <> show count)
+
+  -- Deposit 200 to Ali
+  ledgerId <- submit meezan do
+    exerciseCmd ledgerId DepositTo with
+      customer = ali
+      amount   = 200.0
+
+  -- Check Ali's balance (should be 1200)
+  aliBal <- submit meezan do
+    exerciseCmd ledgerId GetBalance with customer = ali
+  assertMsg "Ali should have 1200" (aliBal == 1200.0)
+  debug ("Ali balance: " <> show aliBal)
+
+  -- Check Sara's balance (should be 500)
+  saraBal <- submit meezan do
+    exerciseCmd ledgerId GetBalance with customer = sara
+  assertMsg "Sara should have 500" (saraBal == 500.0)
+  debug ("Sara balance: " <> show saraBal)
+
+  return ()
