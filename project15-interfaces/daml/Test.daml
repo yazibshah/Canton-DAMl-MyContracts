@@ -1,0 +1,43 @@
+module Test where
+
+import Daml.Script
+import Main
+
+test_interfaces : Script ()
+test_interfaces = script do
+
+  meezan <- allocatePartyByHint (PartyIdHint "Meezan")
+  ali    <- allocatePartyByHint (PartyIdHint "Ali")
+  sara   <- allocatePartyByHint (PartyIdHint "Sara")
+
+  -- Create a PKRCoin
+  pkrCid <- submit meezan do
+    createCmd PKRCoin with
+      issuer = meezan
+      owner  = meezan
+      amount = 1000.0
+
+  -- Create a USDCoin
+  usdCid <- submit meezan do
+    createCmd USDCoin with
+      issuer = meezan
+      owner  = meezan
+      amount = 50.0
+
+  -- Both can be transferred via the SAME interface!
+  -- Transfer PKRCoin using interface
+  -- let pkrAsToken = toInterfaceContractId @IToken pkrCid
+  -- submit meezan do
+  --   exerciseCmd pkrAsToken Transfer with newOwner = ali
+    -- Direct call - no conversion!
+  submit meezan do
+    exerciseCmd pkrCid Transfer with newOwner = ali
+
+  -- Transfer USDCoin using SAME interface
+  let usdAsToken = toInterfaceContractId @IToken usdCid
+  submit meezan do
+    exerciseCmd usdAsToken Transfer with newOwner = sara
+
+  debug "Both coins transferred via same interface!"
+
+  return ()

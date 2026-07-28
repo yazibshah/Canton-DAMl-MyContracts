@@ -1,0 +1,62 @@
+module Main where
+
+-- Interface = like Solidity's IERC20
+-- Defines WHAT all tokens must do
+interface IToken where
+  viewtype TokenView
+
+  getOwner : Party
+  getAmount : Decimal
+
+  -- Every token MUST have a transfer
+  transferImpl : Party -> Update (ContractId IToken)
+
+  choice Transfer : ContractId IToken
+    with newOwner : Party
+    controller getOwner this
+    do
+      transferImpl this newOwner
+
+-- The view (data exposed by interface)
+data TokenView = TokenView with 
+    owner  : Party
+    amount : Decimal   
+  deriving (Eq, Show)
+
+
+-- PKRCoin IMPLEMENTS the interface
+template PKRCoin
+  with
+    issuer : Party
+    owner  : Party
+    amount : Decimal
+  where
+    signatory issuer
+    observer owner
+
+    interface instance IToken for PKRCoin where
+      view = TokenView with owner, amount
+      getOwner = owner
+      getAmount = amount
+      transferImpl newOwner = do
+        cid <- create this with owner = newOwner
+        pure (toInterfaceContractId @IToken cid)
+
+
+-- USDCoin ALSO implements the same interface
+template USDCoin
+  with
+    issuer : Party
+    owner  : Party
+    amount : Decimal
+  where
+    signatory issuer
+    observer owner
+
+    interface instance IToken for USDCoin where
+      view = TokenView with owner, amount
+      getOwner = owner
+      getAmount = amount
+      transferImpl newOwner = do
+        cid <- create this with owner = newOwner
+        pure (toInterfaceContractId @IToken cid)
