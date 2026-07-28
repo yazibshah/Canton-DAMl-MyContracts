@@ -1,0 +1,68 @@
+module Test where
+
+import Daml.Script
+import Main
+
+-- Test 1: Full approval flow
+test_full_approval : Script ()
+test_full_approval = script do
+
+  bank        <- allocatePartyByHint (PartyIdHint "Meezan")
+  ali         <- allocatePartyByHint (PartyIdHint "Ali")
+  manager     <- allocatePartyByHint (PartyIdHint "Manager")
+  riskOfficer <- allocatePartyByHint (PartyIdHint "RiskOfficer")
+
+  loanId <- submit bank do
+    createCmd LoanApplication with
+      bank        = bank
+      applicant   = ali
+      manager     = manager
+      riskOfficer = riskOfficer
+      amount      = 100000.0
+      status      = Applied
+
+  loanId <- submit manager do
+    exerciseCmd loanId ManagerApprove
+  debug "Manager approved"
+
+  loanId <- submit riskOfficer do
+    exerciseCmd loanId RiskApprove
+  debug "Risk approved"
+
+  loanId <- submit bank do
+    exerciseCmd loanId Disburse
+  debug "Loan disbursed"
+
+  status <- submit ali do
+    exerciseCmd loanId GetStatus
+  assertMsg "Should be Disbursed" (status == Disbursed)
+  debug ("Final status: " <> show status)
+
+  return ()
+
+
+-- Test 2: Cannot skip steps
+test_cannot_skip : Script ()
+test_cannot_skip = script do
+
+  bank        <- allocatePartyByHint (PartyIdHint "Meezan")
+  ali         <- allocatePartyByHint (PartyIdHint "Ali")
+  manager     <- allocatePartyByHint (PartyIdHint "Manager")
+  riskOfficer <- allocatePartyByHint (PartyIdHint "RiskOfficer")
+
+  loanId <- submit bank do
+    createCmd LoanApplication with
+      bank        = bank
+      applicant   = ali
+      manager     = manager
+      riskOfficer = riskOfficer
+      amount      = 100000.0
+      status      = Applied
+
+  -- Try to disburse without approvals (must fail)
+  submitMustFail bank do
+    exerciseCmd loanId Disburse
+
+  debug "Correctly prevented skipping steps"
+
+  return ()

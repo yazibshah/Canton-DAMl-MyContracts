@@ -1,0 +1,54 @@
+module Main where
+
+data LoanStatus = Applied | ManagerApproved | RiskApproved | Disbursed | Rejected
+  deriving (Eq, Show)
+
+template LoanApplication
+  with
+    bank        : Party
+    applicant   : Party
+    manager     : Party
+    riskOfficer : Party
+    amount      : Decimal
+    status      : LoanStatus
+  where
+    ensure amount > 0.0
+    signatory bank
+    observer applicant, manager, riskOfficer
+
+    -- Step 1: Manager approves
+    choice ManagerApprove : ContractId LoanApplication
+      controller manager
+      do
+        assertMsg "Must be in Applied state" (status == Applied)
+        create this with
+          status = ManagerApproved
+
+    -- Step 2: Risk officer approves
+    choice RiskApprove : ContractId LoanApplication
+      controller riskOfficer
+      do
+        assertMsg "Must be Manager approved first" (status == ManagerApproved)
+        create this with
+          status = RiskApproved
+
+    -- Step 3: Bank disburses
+    choice Disburse : ContractId LoanApplication
+      controller bank
+      do
+        assertMsg "Must be Risk approved first" (status == RiskApproved)
+        create this with
+          status = Disbursed
+
+    -- Reject at any stage
+    choice Reject : ContractId LoanApplication
+      controller manager
+      do
+        create this with
+          status = Rejected
+
+    -- Check status
+    nonconsuming choice GetStatus : LoanStatus
+      controller applicant
+      do
+        return status
