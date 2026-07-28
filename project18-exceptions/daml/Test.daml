@@ -1,0 +1,77 @@
+module Test where
+
+import Daml.Script
+import Main
+
+-- Test 1: Normal withdraw works
+test_normal_withdraw : Script ()
+test_normal_withdraw = script do
+
+  meezan <- allocatePartyByHint (PartyIdHint "Meezan")
+  ali    <- allocatePartyByHint (PartyIdHint "Ali")
+
+  accId <- submit meezan do
+    createCmd BankAccount with
+      bank    = meezan
+      owner   = ali
+      balance = 1000.0
+      frozen  = False
+
+  -- Withdraw 300 (works)
+  accId <- submit ali do
+    exerciseCmd accId Withdraw with amount = 300.0
+
+  Some acc <- queryContractId meezan accId
+  assertMsg "Balance should be 700" (acc.balance == 700.0)
+  debug ("Balance: " <> show acc.balance)
+
+  return ()
+
+
+-- Test 2: Withdraw too much THROWS (transaction fails)
+test_overdraw_throws : Script ()
+test_overdraw_throws = script do
+
+  meezan <- allocatePartyByHint (PartyIdHint "Meezan")
+  ali    <- allocatePartyByHint (PartyIdHint "Ali")
+
+  accId <- submit meezan do
+    createCmd BankAccount with
+      bank    = meezan
+      owner   = ali
+      balance = 100.0
+      frozen  = False
+
+  -- Try to withdraw 500 (throws InsufficientFunds → fails)
+  submitMustFail ali do
+    exerciseCmd accId Withdraw with amount = 500.0
+
+  debug "Overdraw correctly threw exception"
+
+  return ()
+
+
+-- Test 3: SafeWithdraw CATCHES the error (doesn't fail!)
+test_safe_withdraw : Script ()
+test_safe_withdraw = script do
+
+  meezan <- allocatePartyByHint (PartyIdHint "Meezan")
+  ali    <- allocatePartyByHint (PartyIdHint "Ali")
+
+  accId <- submit meezan do
+    createCmd BankAccount with
+      bank    = meezan
+      owner   = ali
+      balance = 100.0
+      frozen  = False
+
+  -- SafeWithdraw 500 (catches error, balance unchanged, does NOT fail)
+  accId <- submit ali do
+    exerciseCmd accId SafeWithdraw with amount = 500.0
+
+  -- Account still exists with original balance!
+  Some acc <- queryContractId meezan accId
+  assertMsg "Balance unchanged at 100" (acc.balance == 100.0)
+  debug ("SafeWithdraw caught error, balance still: " <> show acc.balance)
+
+  return ()

@@ -1,0 +1,70 @@
+module Main where
+
+import DA.Action (when)
+import DA.Exception
+
+-- Custom exception (like Solidity's custom errors)
+exception InsufficientFunds
+  with
+    requested : Decimal
+    available : Decimal
+  where
+    message "Insufficient funds: requested " <> show requested
+            <> " but only " <> show available <> " available"
+
+exception AccountFrozen
+  with
+    accountOwner : Party
+  where
+    message "Account is frozen"
+
+template BankAccount
+  with
+    bank    : Party
+    owner   : Party
+    balance : Decimal
+    frozen  : Bool
+  where
+    ensure balance >= 0.0
+    signatory bank
+    observer owner
+
+    -- Withdraw that THROWS exceptions
+    choice Withdraw : ContractId BankAccount
+      with amount : Decimal
+      controller owner
+      do
+        -- Throw if account frozen
+        when frozen $
+          throw AccountFrozen with accountOwner = owner
+
+        -- Throw if insufficient funds
+        when (amount > balance) $
+          throw InsufficientFunds with
+            requested = amount
+            available = balance
+
+        create this with balance = balance - amount
+
+    -- Safe withdraw: TRIES withdraw, CATCHES errors
+    choice SafeWithdraw : ContractId BankAccount
+      with amount : Decimal
+      controller owner
+      do
+        try do
+          -- Try to withdraw
+          when frozen $
+            throw AccountFrozen with accountOwner = owner
+          when (amount > balance) $
+            throw InsufficientFunds with
+              requested = amount
+              available = balance
+          create this with balance = balance - amount
+        catch
+          InsufficientFunds _ _ -> do
+            -- Caught! Just return unchanged account
+            debug "Caught: insufficient funds, no change made"
+            create this
+          AccountFrozen _ -> do
+            debug "Caught: account frozen, no change made"
+            create this
