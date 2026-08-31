@@ -1,0 +1,197 @@
+module Main where
+
+import DA.Map (Map)
+import qualified DA.Map as Map
+import DA.Optional (fromOptional)
+import DA.Action (when)
+import DA.Exception
+
+-- ============ ENUM (P8) ============
+data PolicyType = Health | Auto | Life
+  deriving (Eq, Show)
+
+data ClaimStatus = Filed | UnderReview | Approved | Paid | Denied
+  deriving (Eq, Show)
+
+-- ============ RECORD (P8) ============
+data PolicyHolder = PolicyHolder with
+    name : Text
+    cnic : Text
+  deriving (Eq, Show)
+
+-- ============ EXCEPTION (P18) ============
+exception InvalidClaim
+  with
+    reason : Text
+  where
+    message "Invalid claim: " <> reason
+
+-- ============ INTERFACE (P15-16) ============
+interface IPolicy where
+  viewtype PolicyView
+
+  getHolder : Party
+  getCoverage : Decimal
+  getPolicyType : Text
+
+  nonconsuming choice GetPolicyInfo : Text
+    controller getHolder this
+    do
+      return (getPolicyType this <> " policy, coverage: " <> show (getCoverage this))
+
+data PolicyView = PolicyView with
+    holder : Party
+    coverage : Decimal
+    policyType : Text
+  deriving (Eq, Show)
+
+-- ============ POLICY with TIME (P9) ============
+template HealthPolicy
+  with
+    insurer   : Party
+    holder    : Party
+    info      : PolicyHolder
+    coverage  : Decimal
+    expiresAt : Time
+  where
+    ensure coverage > 0.0
+    signatory insurer
+    observer holder
+
+    nonconsuming choice IsActive : Bool
+      controller holder
+      do
+        now <- getTime
+        return (now < expiresAt)
+
+    interface instance IPolicy for HealthPolicy where
+      view = PolicyView with holder, coverage, policyType = "Health"
+      getHolder = holder
+      getCoverage = coverage
+      getPolicyType = "Health"
+
+template AutoPolicy
+  with
+    insurer   : Party
+    holder    : Party
+    info      : PolicyHolder
+    coverage  : Decimal
+    expiresAt : Time
+  where
+    ensure coverage > 0.0
+    signatory insurer
+    observer holder
+
+    interface instance IPolicy for AutoPolicy where
+      view = PolicyView with holder, coverage, policyType = "Auto"
+      getHolder = holder
+      getCoverage = coverage
+      getPolicyType = "Auto"
+
+-- ============ CLAIM: PROPOSE-ACCEPT (P7) + STATE MACHINE (P12) ============
+template ClaimProposal
+  with
+    insurer  : Party
+    claimant : Party
+    amount   : Decimal
+    reason   : Text
+  where
+    ensure amount > 0.0
+    signatory claimant
+    observer insurer
+
+    -- Insurer accepts the claim -> creates a Claim
+    choice AcceptClaim : ContractId Claim
+      controller insurer
+      do
+        create Claim with
+          insurer  = insurer
+          claimant = claimant
+          amount   = amount
+          reason   = reason
+          status   = Filed
+
+    choice RejectClaim : ()
+      controller insurer
+      do return ()
+
+template Claim
+  with
+    insurer  : Party
+    claimant : Party
+    amount   : Decimal
+    reason   : Text
+    status   : ClaimStatus
+  where
+    signatory insurer, claimant
+
+    -- STATE MACHINE (P12): Filed -> UnderReview -> Approved -> Paid
+    choice StartReview : ContractId Claim
+      controller insurer
+      do
+        assertMsg "Must be Filed" (status == Filed)
+        create this with status = UnderReview
+
+    choice ApproveClaim : ContractId Claim
+      controller insurer
+      do
+        assertMsg "Must be UnderReview" (status == UnderReview)
+        create this with status = Approved 
+
+    choice PayClaim : ContractId Claim
+      with
+        paidAmount : Decimal
+      controller insurer
+      do
+        assertMsg "Must be Approved" (status == Approved)
+        assertMsg "Payment must match claim amount" (paidAmount == amount)
+        create this with status = Paid
+
+    choice DenyClaim : ContractId Claim
+      controller insurer
+      do
+        create this with status = Denied
+
+    -- EXCEPTION (P18): validate claim amount with try-catch
+    nonconsuming choice ValidateAmount : Text
+      with
+        maxCoverage : Decimal
+      controller insurer
+      do
+        try do
+          when (amount > maxCoverage) $
+            throw InvalidClaim with reason = "Amount exceeds coverage"
+          return "Claim amount is valid"
+        catch
+          InvalidClaim r ->
+            return ("Rejected: " <> r)
+
+-- ============ REGISTRY with MAP (P14) ============
+template ClaimsRegistry
+  with
+    insurer : Party
+    claims  : Map Party Decimal    -- claimant -> total claimed
+  where
+    signatory insurer
+
+    choice RecordClaim : ContractId ClaimsRegistry
+      with
+        claimant : Party
+        amount   : Decimal
+      controller insurer
+      do
+        let current = fromOptional 0.0 (Map.lookup claimant claims)
+        create this with
+          claims = Map.insert claimant (current + amount) claims
+
+    nonconsuming choice GetTotalClaimed : Decimal
+      with
+        claimant : Party
+      controller insurer
+      do
+        return (fromOptional 0.0 (Map.lookup claimant claims))
+
+    nonconsuming choice ClaimantCount : Int
+      controller insurer
+      do
+        return (Map.size claims)

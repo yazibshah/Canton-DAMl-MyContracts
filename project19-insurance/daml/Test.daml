@@ -1,0 +1,130 @@
+module Test where
+
+import Daml.Script
+import qualified DA.Map as Map
+import DA.Time
+import Main
+
+test_full_insurance : Script ()
+test_full_insurance = script do
+
+  takaful <- allocatePartyByHint (PartyIdHint "TakafulCo")
+  ali     <- allocatePartyByHint (PartyIdHint "Ali")
+
+  now <- getTime
+  let expiry = addRelTime now (days 365)
+
+  -- 1. Issue a health policy (template + Time + record)
+  policyId <- submit takaful do
+    createCmd HealthPolicy with
+      insurer   = takaful
+      holder    = ali
+      info      = PolicyHolder with name = "Ali Khan", cnic = "42101-1"
+      coverage  = 500000.0
+      expiresAt = expiry
+
+  -- 2. Check policy active (Time)
+  active <- submit ali do exerciseCmd policyId IsActive
+  assertMsg "Policy should be active" (active == True)
+  debug "Policy is active"
+
+  -- 3. Get policy info via interface (polymorphism)
+  info <- submit ali do
+    exerciseCmd (toInterfaceContractId @IPolicy policyId) GetPolicyInfo
+  debug info
+
+  -- 4. Ali files a claim (propose-accept)
+  proposalId <- submit ali do
+    createCmd ClaimProposal with
+      insurer  = takaful
+      claimant = ali
+      amount   = 50000.0
+      reason   = "Hospital bill"
+
+  -- 5. TakafulCo accepts -> Claim created
+  claimId <- submit takaful do
+    exerciseCmd proposalId AcceptClaim
+
+  -- 6. State machine: Filed -> UnderReview -> Approved -> Paid
+  reviewingId <- submit takaful do exerciseCmd claimId StartReview
+  debug "Claim under review"
+
+  approvedId <- submit takaful do exerciseCmd reviewingId ApproveClaim
+  debug "Claim approved"
+
+  _paidId <- submit takaful do
+    exerciseCmd approvedId PayClaim with paidAmount = 50000.0
+  debug "Claim paid"
+
+  -- 7. Registry with Map
+  emptyRegId <- submit takaful do
+    createCmd ClaimsRegistry with
+      insurer = takaful
+      claims  = Map.empty
+
+  regId <- submit takaful do
+    exerciseCmd emptyRegId RecordClaim with
+      claimant = ali
+      amount   = 50000.0
+
+  total <- submit takaful do
+    exerciseCmd regId GetTotalClaimed with claimant = ali
+  assertMsg "Total should be 50000" (total == 50000.0)
+  debug ("Total claimed by Ali: " <> show total)
+
+  count <- submit takaful do exerciseCmd regId ClaimantCount
+  assertMsg "One claimant expected" (count == 1)
+
+  return ()
+
+
+-- Test exception handling (try-catch)
+test_claim_validation : Script ()
+test_claim_validation = script do
+
+  takaful <- allocatePartyByHint (PartyIdHint "TakafulCo")
+  ali     <- allocatePartyByHint (PartyIdHint "Ali")
+
+  proposalId <- submit ali do
+    createCmd ClaimProposal with
+      insurer  = takaful
+      claimant = ali
+      amount   = 1000000.0
+      reason   = "Big claim"
+
+  claimId <- submit takaful do
+    exerciseCmd proposalId AcceptClaim
+
+  -- Validate against coverage of 500000 (claim exceeds -> caught)
+  result <- submit takaful do
+    exerciseCmd claimId ValidateAmount with maxCoverage = 500000.0
+  debug result   -- "Rejected: Amount exceeds coverage"
+  assertMsg "Should be rejected" (result == "Rejected: Amount exceeds coverage")
+
+  return ()
+
+
+-- Test state machine protection
+test_cannot_skip_stages : Script ()
+test_cannot_skip_stages = script do
+
+  takaful <- allocatePartyByHint (PartyIdHint "TakafulCo")
+  ali     <- allocatePartyByHint (PartyIdHint "Ali")
+
+  proposalId <- submit ali do
+    createCmd ClaimProposal with
+      insurer  = takaful
+      claimant = ali
+      amount   = 10000.0
+      reason   = "Test"
+
+  claimId <- submit takaful do
+    exerciseCmd proposalId AcceptClaim
+
+  -- Try to pay WITHOUT review/approve (must fail)
+  submitMustFail takaful do
+    exerciseCmd claimId PayClaim with paidAmount = 10000.0
+
+  debug "Cannot skip stages"
+
+  return ()
