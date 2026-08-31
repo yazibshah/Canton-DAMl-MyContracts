@@ -1,0 +1,68 @@
+module Test where
+
+import Daml.Script
+import Main
+
+test_vault : Script ()
+test_vault = script do
+
+  ali <- allocatePartyByHint (PartyIdHint "Ali")
+
+  -- Create 3 assets
+  asset1 <- submit ali do
+    createCmd Asset with owner = ali, name = "House", value = 1000000.0
+
+  asset2 <- submit ali do
+    createCmd Asset with owner = ali, name = "Car", value = 500000.0
+
+  asset3 <- submit ali do
+    createCmd Asset with owner = ali, name = "Gold", value = 300000.0
+
+  -- Create empty vault
+  vaultId <- submit ali do
+    createCmd Vault with
+      owner = ali
+      assetCids = []
+
+  -- Add all 3 assets to vault
+  vaultId <- submit ali do
+    exerciseCmd vaultId AddAsset with assetCid = asset1
+  vaultId <- submit ali do
+    exerciseCmd vaultId AddAsset with assetCid = asset2
+  vaultId <- submit ali do
+    exerciseCmd vaultId AddAsset with assetCid = asset3
+
+  -- Count assets
+  count <- submit ali do
+    exerciseCmd vaultId AssetCount
+  assertMsg "Should have 3 assets" (count == 3)
+  debug ("Asset count: " <> show count)
+
+  -- Total value (1000000 + 500000 + 300000 = 1800000)
+  total <- submit ali do
+    exerciseCmd vaultId TotalValue
+  assertMsg "Total should be 1800000" (total == 1800000.0)
+  debug ("Total value: " <> show total)
+
+  -- Total with 2% fee (1800000 + 36000 = 1836000)
+  totalFee <- submit ali do
+    exerciseCmd vaultId TotalWithFees
+  assertMsg "Total with fee should be 1836000" (totalFee == 1836000.0)
+  debug ("Total with fees: " <> show totalFee)
+
+  return ()
+
+
+-- Test helper functions directly
+test_helpers : Script ()
+test_helpers = script do
+
+  -- calculateFee 1000 = 20
+  assertMsg "Fee of 1000 should be 20" (calculateFee 1000.0 == 20.0)
+
+  -- totalWithFee 1000 = 1020
+  assertMsg "Total with fee should be 1020" (totalWithFee 1000.0 == 1020.0)
+
+  debug "Helper functions work correctly"
+
+  return ()

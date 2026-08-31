@@ -1,0 +1,66 @@
+module Main where
+
+-- ============ HELPER FUNCTION (pure, reusable) ============
+-- Calculate fee: 2% of amount
+calculateFee : Decimal -> Decimal
+calculateFee amount = amount * 0.02
+
+-- Calculate total with fee
+totalWithFee : Decimal -> Decimal
+totalWithFee amount = amount + calculateFee amount
+
+-- ============ A single asset ============
+template Asset
+  with
+    owner  : Party
+    name   : Text
+    value  : Decimal
+  where
+    signatory owner
+
+    choice UpdateValue : ContractId Asset
+      with newValue : Decimal
+      controller owner
+      do
+        assert (newValue > 0.0)
+        create this with value = newValue
+
+-- ============ VAULT: holds references to many assets (COMPOSITION) ============
+template Vault 
+  with
+    owner     : Party
+    assetCids : [ContractId Asset]    -- LIST of asset references!
+  where
+    signatory owner
+
+    -- Add an asset reference to the vault 
+    choice AddAsset : ContractId Vault
+      with assetCid : ContractId Asset
+      controller owner
+      do
+        create this with
+          assetCids = assetCid :: assetCids  
+
+    -- Calculate total value of ALL assets in vault
+    nonconsuming choice TotalValue : Decimal
+      controller owner
+      do
+        -- fetch each asset, get its value, sum them
+        assets <- mapA fetch assetCids
+        let values = map (\a -> a.value) assets
+        return (sum values)
+
+    -- Count assets
+    nonconsuming choice AssetCount : Int
+      controller owner
+      do
+        return (length assetCids)
+
+    -- Calculate total value INCLUDING 2% fee (uses helper function)
+    nonconsuming choice TotalWithFees : Decimal
+      controller owner
+      do
+        assets <- mapA fetch assetCids
+        let values = map (\a -> a.value) assets
+        let total = sum values
+        return (totalWithFee total)
