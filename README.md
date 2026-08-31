@@ -25,6 +25,9 @@ All projects use **Daml SDK 3.4.11**.
 | 16 | [project16-interface-advanced](project16-interface-advanced/) | An `IAsset` interface implemented by `PKRCoin`, `GoldToken`, and `BondToken` — interface-level choices (`TransferAsset`, `GetInfo`) and computed view values. |
 | 17 | [project17-digital-bank](project17-digital-bank/) | A capstone digital bank: KYC records with expiry, an `IAsset` interface over PKR and gold, propose-accept transfers, asset merging, and a `Map`-backed customer registry. |
 | 18 | [project18-exceptions](project18-exceptions/) | Custom `exception` types (`InsufficientFunds`, `AccountFrozen`) with `throw`, and a `SafeWithdraw` choice using `try`/`catch` — error handling inside choices. |
+| 19 | [project19-insurance](project19-insurance/) | An `IPolicy` interface over `HealthPolicy` and `AutoPolicy` with a full claim workflow — `ClaimProposal` → `Claim` moving through a `ClaimStatus` enum, an `InvalidClaim` exception, and a `ClaimsRegistry`. |
+| 20 | [project20-composition](project20-composition/) | A `Vault` holding a list of `ContractId Asset` references — contract composition with `mapA fetch`, plus pure helper functions (`calculateFee`, `totalWithFee`) reused by nonconsuming `TotalValue`/`TotalWithFees` choices. |
+| 21 | [project21-marketplace](project21-marketplace/) | A capstone marketplace: an `IProduct` interface, propose-accept ordering (`OrderProposal` → `Order`) through an `OrderStatus` lifecycle, an `OutOfStock` exception, and `Catalog` / `RatingsRegistry` collections. |
 
 ## Getting started
 
