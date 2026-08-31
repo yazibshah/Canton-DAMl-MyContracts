@@ -1,0 +1,143 @@
+module Test where
+
+import Daml.Script
+import qualified DA.Map as Map
+import Main
+
+test_full_marketplace : Script ()
+test_full_marketplace = script do
+
+  daraz  <- allocatePartyByHint (PartyIdHint "DarazPK")
+  seller <- allocatePartyByHint (PartyIdHint "Seller")
+  buyer  <- allocatePartyByHint (PartyIdHint "Buyer")
+
+  -- 1. Seller lists products (enum, stock)
+  laptop <- submit seller do
+    createCmd Product with
+      seller   = seller
+      name     = "Laptop"
+      price    = 100000.0
+      stock    = 10
+      category = Electronics
+
+  shirt <- submit seller do
+    createCmd Product with
+      seller   = seller
+      name     = "Shirt"
+      price    = 2000.0
+      stock    = 50
+      category = Clothing
+
+  -- 2. Product info via interface (polymorphism)
+  let laptopI = toInterfaceContractId @IProduct laptop
+  info <- submit seller do exerciseCmd laptopI GetProductInfo
+  debug info
+
+  -- 3. Build catalog (LIST + composition)
+  catId <- submit seller do
+    createCmd Catalog with
+      seller = seller
+      productCids = []
+
+  catId <- submit seller do
+    exerciseCmd catId AddProduct with productCid = laptop
+  catId <- submit seller do
+    exerciseCmd catId AddProduct with productCid = shirt
+
+  -- 4. Catalog total (map + sum)
+  catValue <- submit seller do exerciseCmd catId CatalogValue
+  assertMsg "Catalog = 102000" (catValue == 102000.0)
+  debug ("Catalog value: " <> show catValue)
+
+  count <- submit seller do exerciseCmd catId ProductCount
+  debug ("Products in catalog: " <> show count)
+
+  -- 5. Buyer places order (propose-accept)
+  proposalId <- submit buyer do
+    createCmd OrderProposal with
+      buyer = buyer
+      seller = seller
+      product = "Laptop"
+      quantity = 2
+      price = 100000.0
+
+  orderId <- submit seller do exerciseCmd proposalId AcceptOrder
+
+  -- 6. Order state machine (P12)
+  orderId <- submit seller do exerciseCmd orderId ConfirmOrder
+  debug "Order confirmed"
+  orderId <- submit seller do exerciseCmd orderId ShipOrder
+  debug "Order shipped"
+  orderId <- submit buyer do exerciseCmd orderId DeliverOrder
+  debug "Order delivered"
+
+  -- 7. Seller payout (helper function)
+  -- 2 laptops * 100000 = 200000, minus 5% = 190000
+  payout <- submit seller do exerciseCmd orderId SellerPayout
+  assertMsg "Payout = 190000" (payout == 190000.0)
+  debug ("Seller earns: " <> show payout)
+
+  -- 8. Ratings registry (Map)
+  regId <- submit daraz do
+    createCmd RatingsRegistry with
+      platform = daraz
+      ratings = Map.empty
+
+  regId <- submit daraz do
+    exerciseCmd regId SetRating with seller = seller, rating = 4.5
+
+  rating <- submit daraz do
+    exerciseCmd regId GetRating with seller = seller
+  assertMsg "Rating = 4.5" (rating == 4.5)
+  debug ("Seller rating: " <> show rating)
+
+  return ()
+
+
+-- Test exception (out of stock)
+test_out_of_stock : Script ()
+test_out_of_stock = script do
+
+  seller <- allocatePartyByHint (PartyIdHint "Seller")
+
+  laptop <- submit seller do
+    createCmd Product with
+      seller   = seller
+      name     = "Laptop"
+      price    = 100000.0
+      stock    = 5
+      category = Electronics
+
+  -- Try to reduce more than available -> throws
+  submitMustFail seller do
+    exerciseCmd laptop ReduceStock with quantity = 10
+
+  debug "Out of stock correctly rejected"
+
+  return ()
+
+
+-- Test state machine protection
+test_cannot_skip_states : Script ()
+test_cannot_skip_states = script do
+
+  seller <- allocatePartyByHint (PartyIdHint "Seller")
+  buyer  <- allocatePartyByHint (PartyIdHint "Buyer")
+
+  proposalId <- submit buyer do
+    createCmd OrderProposal with
+      buyer = buyer
+      seller = seller
+      product = "Laptop"
+      quantity = 1
+      price = 100000.0
+
+  orderId <- submit seller do exerciseCmd proposalId AcceptOrder
+
+  -- Try to ship WITHOUT confirming (must fail)
+  submitMustFail seller do
+    exerciseCmd orderId ShipOrder
+
+  debug "Cannot skip states"
+
+  return ()

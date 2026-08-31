@@ -1,0 +1,215 @@
+module Main where
+
+import DA.Map (Map)
+import qualified DA.Map as Map
+import DA.Optional (fromOptional)
+import DA.Action (when)
+import DA.Exception
+
+-- ============ HELPER FUNCTIONS (P20) ============
+-- Platform takes 5% commission
+platformFee : Decimal -> Decimal
+platformFee price = price * 0.05
+
+-- Final price seller receives
+sellerEarnings : Decimal -> Decimal
+sellerEarnings price = price - platformFee price
+
+-- ============ ENUM (P8) ============
+data Category = Electronics | Clothing | Books
+  deriving (Eq, Show)
+
+data OrderStatus = Placed | Confirmed | Shipped | Delivered | Cancelled
+  deriving (Eq, Show)
+
+-- ============ RECORD (P8) ============
+data SellerInfo = SellerInfo with
+    shopName : Text
+    city     : Text
+  deriving (Eq, Show)
+
+-- ============ EXCEPTION (P18) ============
+exception OutOfStock
+  with
+    productName : Text
+    requested   : Int
+    available   : Int
+  where
+    message "Out of stock: " <> productName
+
+-- ============ INTERFACE (P15-16) ============
+interface IProduct where
+  viewtype ProductView
+
+  getSeller : Party
+  getPrice : Decimal
+  getCategory : Text
+
+  nonconsuming choice GetProductInfo : Text
+    controller getSeller this
+    do
+      return (getCategory this <> " priced at " <> show (getPrice this))
+
+data ProductView = ProductView with
+    seller : Party
+    price : Decimal
+    category : Text
+  deriving (Eq, Show)
+
+-- ============ PRODUCT with STOCK ============
+template Product
+  with
+    seller   : Party
+    name     : Text
+    price    : Decimal
+    stock    : Int
+    category : Category
+  where
+    ensure price > 0.0 && stock >= 0
+    signatory seller
+
+    -- Reduce stock when sold (with exception if not enough)
+    choice ReduceStock : ContractId Product
+      with quantity : Int
+      controller seller
+      do
+        when (quantity > stock) $
+          throw OutOfStock with
+            productName = name
+            requested = quantity
+            available = stock
+        create this with stock = stock - quantity
+
+    interface instance IProduct for Product where
+      view = ProductView with seller, price, category = show category
+      getSeller = seller
+      getPrice = price
+      getCategory = show category
+
+-- ============ ORDER: PROPOSE-ACCEPT (P7) + STATE MACHINE (P12) ============
+template OrderProposal
+  with
+    buyer    : Party
+    seller   : Party
+    product  : Text
+    quantity : Int
+    price    : Decimal
+  where
+    ensure quantity > 0
+    signatory buyer
+    observer seller
+
+    choice AcceptOrder : ContractId Order
+      controller seller
+      do
+        create Order with
+          buyer = buyer
+          seller = seller
+          product = product
+          quantity = quantity
+          price = price
+          status = Placed
+
+    choice DeclineOrder : ()
+      controller seller
+      do return ()
+
+template Order
+  with
+    buyer    : Party
+    seller   : Party
+    product  : Text
+    quantity : Int
+    price    : Decimal
+    status   : OrderStatus
+  where
+    signatory buyer, seller
+
+    -- STATE MACHINE (P12): Placed -> Confirmed -> Shipped -> Delivered
+    choice ConfirmOrder : ContractId Order
+      controller seller
+      do
+        assertMsg "Must be Placed" (status == Placed)
+        create this with status = Confirmed
+
+    choice ShipOrder : ContractId Order
+      controller seller
+      do
+        assertMsg "Must be Confirmed" (status == Confirmed)
+        create this with status = Shipped
+
+    choice DeliverOrder : ContractId Order
+      controller buyer
+      do
+        assertMsg "Must be Shipped" (status == Shipped)
+        create this with status = Delivered
+
+    choice CancelOrder : ContractId Order
+      controller buyer
+      do
+        assertMsg "Cannot cancel delivered" (status /= Delivered)
+        create this with status = Cancelled
+
+    -- Calculate what seller earns (uses helper - P20)
+    nonconsuming choice SellerPayout : Decimal
+      controller seller
+      do
+        let total = price * intToDecimal quantity
+        return (sellerEarnings total)
+
+-- ============ CATALOG: LIST + composition (P20) ============
+template Catalog
+  with
+    seller      : Party
+    productCids : [ContractId Product]
+  where
+    signatory seller
+
+    choice AddProduct : ContractId Catalog
+      with productCid : ContractId Product
+      controller seller
+      do
+        create this with
+          productCids = productCid :: productCids
+
+    -- Total value of all products (map + sum - P20)
+    nonconsuming choice CatalogValue : Decimal
+      controller seller
+      do
+        products <- mapA fetch productCids
+        let prices = map (\p -> p.price) products
+        return (sum prices)
+
+    nonconsuming choice ProductCount : Int
+      controller seller
+      do
+        return (length productCids)
+
+-- ============ RATINGS REGISTRY: MAP (P14) ============
+template RatingsRegistry
+  with
+    platform : Party
+    ratings  : Map Party Decimal    -- seller -> average rating
+  where
+    signatory platform
+
+    choice SetRating : ContractId RatingsRegistry
+      with
+        seller : Party
+        rating : Decimal
+      controller platform
+      do
+        assertMsg "Rating 0-5" (rating >= 0.0 && rating <= 5.0)
+        create this with
+          ratings = Map.insert seller rating ratings
+
+    nonconsuming choice GetRating : Decimal
+      with seller : Party
+      controller platform
+      do
+        return (fromOptional 0.0 (Map.lookup seller ratings))
+
+    nonconsuming choice SellerCount : Int
+      controller platform
+      do
+        return (Map.size ratings)
