@@ -28,6 +28,7 @@ All projects use **Daml SDK 3.4.11**.
 | 19 | [project19-insurance](project19-insurance/) | An `IPolicy` interface over `HealthPolicy` and `AutoPolicy` with a full claim workflow — `ClaimProposal` → `Claim` moving through a `ClaimStatus` enum, an `InvalidClaim` exception, and a `ClaimsRegistry`. |
 | 20 | [project20-composition](project20-composition/) | A `Vault` holding a list of `ContractId Asset` references — contract composition with `mapA fetch`, plus pure helper functions (`calculateFee`, `totalWithFee`) reused by nonconsuming `TotalValue`/`TotalWithFees` choices. |
 | 21 | [project21-marketplace](project21-marketplace/) | A capstone marketplace: an `IProduct` interface, propose-accept ordering (`OrderProposal` → `Order`) through an `OrderStatus` lifecycle, an `OutOfStock` exception, and `Catalog` / `RatingsRegistry` collections. |
+| 22 | [project22-delegation](project22-delegation/) | A `Delegation` template letting a delegate spend on the principal's behalf up to a limit, an N-of-M `MultiSigProposal` collecting approvals in a `[Party]` list before `Execute`, and an admin-managed `Whitelist` — delegated authority and list-based access control. |
 
 ## Getting started
 

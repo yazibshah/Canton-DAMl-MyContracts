@@ -1,0 +1,132 @@
+module Main where
+
+import DA.List (elem, filter, length)
+
+-- ============ DELEGATION: let someone act for you ============
+template Delegation
+  with
+    principal : Party       -- the boss (bank)
+    delegate  : Party       -- the agent (manager)
+    maxAmount : Decimal     -- spending limit
+  where
+    signatory principal
+    observer delegate
+
+    -- Delegate can transfer on behalf of principal (within limit)
+    nonconsuming choice DelegatedTransfer : ContractId Payment
+      with
+        recipient : Party
+        amount    : Decimal
+      controller delegate
+      do
+        assertMsg "Exceeds delegation limit" (amount <= maxAmount)
+        create Payment with
+          sender = principal        -- principal's authority used!
+          recipient = recipient
+          amount = amount
+          authorizedBy = delegate
+
+    -- Principal can revoke the delegation
+    choice RevokeDelegation : ()
+      controller principal
+      do return ()
+
+template Payment
+  with
+    sender       : Party
+    recipient    : Party
+    amount       : Decimal
+    authorizedBy : Party
+  where
+    ensure amount > 0.0
+    signatory sender
+    observer recipient
+
+-- ============ MULTI-SIG: N of M approvals ============
+template MultiSigProposal
+  with
+    proposer         : Party
+    requiredApprovers : [Party]      -- LIST of parties!
+    approvals        : [Party]       -- who has approved so far
+    threshold        : Int           -- how many needed
+    description      : Text
+    amount           : Decimal
+  where
+    signatory proposer
+    observer requiredApprovers
+
+    -- An approver signs off
+    choice Approve : ContractId MultiSigProposal
+      with approver : Party
+      controller approver
+      do
+        -- must be in the required list
+        assertMsg "Not an authorized approver" (approver `elem` requiredApprovers)
+        -- cannot approve twice
+        assertMsg "Already approved" (not (approver `elem` approvals))
+        create this with approvals = approver :: approvals
+
+    -- Execute once threshold is reached
+    choice Execute : ContractId ApprovedAction
+      controller proposer
+      do
+        assertMsg "Not enough approvals" (length approvals >= threshold)
+        create ApprovedAction with
+          executor = proposer
+          description = description
+          amount = amount
+          approvedBy = approvals
+
+    -- Check how many approvals we have
+    nonconsuming choice ApprovalCount : Int
+      controller proposer
+      do
+        return (length approvals)
+
+    -- Who still needs to approve?
+    nonconsuming choice PendingApprovers : [Party]
+      controller proposer
+      do
+        return (filter (\p -> not (p `elem` approvals)) requiredApprovers)
+
+template ApprovedAction
+  with
+    executor    : Party
+    description : Text
+    amount      : Decimal
+    approvedBy  : [Party]
+  where
+    signatory executor
+    observer approvedBy
+
+-- ============ WHITELIST: only allowed parties ============
+template Whitelist
+  with
+    admin   : Party
+    allowed : [Party]
+  where
+    signatory admin
+
+    choice AddToWhitelist : ContractId Whitelist
+      with newParty : Party
+      controller admin
+      do
+        assertMsg "Already whitelisted" (not (newParty `elem` allowed))
+        create this with allowed = newParty :: allowed
+
+    choice RemoveFromWhitelist : ContractId Whitelist
+      with party : Party
+      controller admin
+      do
+        create this with allowed = filter (\p -> p /= party) allowed
+
+    nonconsuming choice IsWhitelisted : Bool
+      with party : Party
+      controller admin
+      do
+        return (party `elem` allowed)
+
+    nonconsuming choice WhitelistSize : Int
+      controller admin
+      do
+        return (length allowed)

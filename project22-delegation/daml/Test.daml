@@ -1,0 +1,178 @@
+module Test where
+
+import Daml.Script
+import Main
+
+-- Test 1: Delegation works within limit
+test_delegation : Script ()
+test_delegation = script do
+
+  bank    <- allocatePartyByHint (PartyIdHint "Bank")
+  manager <- allocatePartyByHint (PartyIdHint "Manager")
+  ali     <- allocatePartyByHint (PartyIdHint "Ali")
+
+  -- Bank delegates to Manager with 50000 limit
+  delId <- submit bank do
+    createCmd Delegation with
+      principal = bank
+      delegate  = manager
+      maxAmount = 50000.0
+
+  -- Manager transfers 30000 on bank's behalf (within limit)
+  payId <- submit manager do
+    exerciseCmd delId DelegatedTransfer with
+      recipient = ali
+      amount    = 30000.0
+
+  Some pay <- queryContractId bank payId
+  assertMsg "Sender is bank" (pay.sender == bank)
+  assertMsg "Authorized by manager" (pay.authorizedBy == manager)
+  debug "Manager transferred on bank's behalf"
+
+  return ()
+
+
+-- Test 2: Delegation limit enforced
+test_delegation_limit : Script ()
+test_delegation_limit = script do
+
+  bank    <- allocatePartyByHint (PartyIdHint "Bank")
+  manager <- allocatePartyByHint (PartyIdHint "Manager")
+  ali     <- allocatePartyByHint (PartyIdHint "Ali")
+
+  delId <- submit bank do
+    createCmd Delegation with
+      principal = bank
+      delegate  = manager
+      maxAmount = 50000.0
+
+  -- Try 100000 (over limit) -> must fail
+  submitMustFail manager do
+    exerciseCmd delId DelegatedTransfer with
+      recipient = ali
+      amount    = 100000.0
+
+  debug "Over-limit transfer correctly blocked"
+  return ()
+
+
+-- Test 3: Multi-sig 2-of-3
+test_multisig : Script ()
+test_multisig = script do
+
+  ceo <- allocatePartyByHint (PartyIdHint "CEO")
+  d1  <- allocatePartyByHint (PartyIdHint "Director1")
+  d2  <- allocatePartyByHint (PartyIdHint "Director2")
+  d3  <- allocatePartyByHint (PartyIdHint "Director3")
+
+  -- Proposal needing 2 of 3 directors
+  propId <- submit ceo do
+    createCmd MultiSigProposal with
+      proposer = ceo
+      requiredApprovers = [d1, d2, d3]
+      approvals = []
+      threshold = 2
+      description = "Buy new servers"
+      amount = 500000.0
+
+  -- Check pending approvers (all 3)
+  pending <- submit ceo do exerciseCmd propId PendingApprovers
+  assertMsg "3 pending" (length pending == 3)
+
+  -- Director1 approves
+  propId <- submit d1 do
+    exerciseCmd propId Approve with approver = d1
+
+  count <- submit ceo do exerciseCmd propId ApprovalCount
+  assertMsg "1 approval" (count == 1)
+  debug "Director1 approved"
+
+  -- Director2 approves
+  propId <- submit d2 do
+    exerciseCmd propId Approve with approver = d2
+
+  count <- submit ceo do exerciseCmd propId ApprovalCount
+  assertMsg "2 approvals" (count == 2)
+  debug "Director2 approved - threshold reached"
+
+  -- Now CEO can execute
+  actionId <- submit ceo do exerciseCmd propId Execute
+
+  Some action <- queryContractId ceo actionId
+  assertMsg "2 approvers recorded" (length action.approvedBy == 2)
+  debug "Action executed with 2 approvals"
+
+  return ()
+
+
+-- Test 4: Cannot execute without threshold
+test_insufficient_approvals : Script ()
+test_insufficient_approvals = script do
+
+  ceo <- allocatePartyByHint (PartyIdHint "CEO")
+  d1  <- allocatePartyByHint (PartyIdHint "Director1")
+  d2  <- allocatePartyByHint (PartyIdHint "Director2")
+
+  propId <- submit ceo do
+    createCmd MultiSigProposal with
+      proposer = ceo
+      requiredApprovers = [d1, d2]
+      approvals = []
+      threshold = 2
+      description = "Big spend"
+      amount = 1000000.0
+
+  -- Only 1 approval
+  propId <- submit d1 do
+    exerciseCmd propId Approve with approver = d1
+
+  -- Try to execute with only 1 of 2 -> must fail
+  submitMustFail ceo do
+    exerciseCmd propId Execute
+
+  debug "Execution blocked without enough approvals"
+  return ()
+
+
+-- Test 5: Whitelist
+test_whitelist : Script ()
+test_whitelist = script do
+
+  admin <- allocatePartyByHint (PartyIdHint "Admin")
+  ali   <- allocatePartyByHint (PartyIdHint "Ali")
+  sara  <- allocatePartyByHint (PartyIdHint "Sara")
+  bob   <- allocatePartyByHint (PartyIdHint "Bob")
+
+  wlId <- submit admin do
+    createCmd Whitelist with
+      admin = admin
+      allowed = []
+
+  -- Add Ali and Sara
+  wlId <- submit admin do
+    exerciseCmd wlId AddToWhitelist with newParty = ali
+  wlId <- submit admin do
+    exerciseCmd wlId AddToWhitelist with newParty = sara
+
+  size <- submit admin do exerciseCmd wlId WhitelistSize
+  assertMsg "2 whitelisted" (size == 2)
+
+  -- Check Ali is whitelisted
+  aliOk <- submit admin do
+    exerciseCmd wlId IsWhitelisted with party = ali
+  assertMsg "Ali whitelisted" (aliOk == True)
+
+  -- Check Bob is NOT
+  bobOk <- submit admin do
+    exerciseCmd wlId IsWhitelisted with party = bob
+  assertMsg "Bob not whitelisted" (bobOk == False)
+
+  -- Remove Ali
+  wlId <- submit admin do
+    exerciseCmd wlId RemoveFromWhitelist with party = ali
+
+  size <- submit admin do exerciseCmd wlId WhitelistSize
+  assertMsg "1 left" (size == 1)
+  debug "Whitelist add/check/remove works"
+
+  return ()
