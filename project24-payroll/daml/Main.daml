@@ -1,0 +1,86 @@
+module Main where
+
+import DA.Foldable (forA_)
+import DA.Traversable (forA)
+
+-- ============ RECORD: one line of the payroll ============
+data PayLine = PayLine with
+    employee : Party
+    salary   : Decimal
+  deriving (Eq, Show)
+
+-- ============ PURE HELPERS ============
+
+-- foldl: add up all salaries
+totalPayroll : [PayLine] -> Decimal
+totalPayroll payLines = foldl (\total line -> total + line.salary) 0.0 payLines
+
+-- zip: pair each employee with a salary
+makePayLines : [Party] -> [Decimal] -> [PayLine]
+makePayLines employees salaries =
+  map (\(e, s) -> PayLine with employee = e, salary = s) (zip employees salaries)
+
+-- ============ UPDATE HELPER (creates a contract) ============
+issueSlip : Party -> Party -> PayLine -> Update (ContractId SalarySlip)
+issueSlip bank company line =
+  create SalarySlip with
+    bank     = bank
+    company  = company
+    employee = line.employee
+    amount   = line.salary``
+
+-- ============ ACCOUNT ============
+template Account
+  with
+    bank    : Party
+    owner   : Party
+    balance : Decimal
+  where
+    ensure balance >= 0.0
+    signatory bank
+    observer owner
+
+    -- Pay everyone in ONE transaction
+    choice RunPayroll : (ContractId Account, [ContractId SalarySlip])
+      with payLines : [PayLine]
+      controller owner
+      do
+        assertMsg "Payroll is empty" (not (null payLines))
+        let total = totalPayroll payLines
+        assertMsg "Insufficient balance for payroll" (total <= balance)
+        newAcc <- create this with balance = balance - total
+        slips <- forA payLines (\line -> issueSlip bank owner line)
+        return (newAcc, slips)
+
+    -- Cancel unclaimed slips and refund the company
+    choice VoidSlips : ContractId Account
+      with slipCids : [ContractId SalarySlip]
+      controller owner
+      do
+        slips <- mapA fetch slipCids
+        forA_ slips (\s -> assertMsg "Slip not from this company" (s.company == owner && s.bank == bank))
+        forA_ slipCids archive
+        let refund = sum (map (\s -> s.amount) slips)
+        create this with balance = balance + refund
+
+-- ============ SALARY SLIP (a cheque) ============
+template SalarySlip
+  with
+    bank     : Party
+    company  : Party
+    employee : Party
+    amount   : Decimal
+  where
+    ensure amount > 0.0
+    signatory bank
+    observer company, employee
+
+    choice DepositSalary : ContractId Account
+      with accountCid : ContractId Account
+      controller employee
+      do
+        acc <- fetch accountCid
+        assertMsg "Not your account" (acc.owner == employee)
+        assertMsg "Different bank" (acc.bank == bank)
+        archive accountCid
+        create acc with balance = acc.balance + amount

@@ -1,0 +1,126 @@
+module Test where
+
+import Daml.Script
+import Main
+
+-- Test 1: Pay 3 employees in one transaction
+test_payroll : Script ()
+test_payroll = script do
+
+  bank    <- allocatePartyByHint (PartyIdHint "Bank")
+  company <- allocatePartyByHint (PartyIdHint "Evantage")
+  yazib   <- allocatePartyByHint (PartyIdHint "Yazib")
+  ali     <- allocatePartyByHint (PartyIdHint "Ali")
+  sara    <- allocatePartyByHint (PartyIdHint "Sara")
+
+  compAcc1 <- submit bank do
+    createCmd Account with bank = bank, owner = company, balance = 1000000.0
+
+  yazibAcc1 <- submit bank do
+    createCmd Account with bank = bank, owner = yazib, balance = 0.0
+
+  -- zip employees with salaries
+  let payLines = makePayLines [yazib, ali, sara] [150000.0, 120000.0, 100000.0]
+
+  -- foldl total (pure function, runs right here in the test)
+  assertMsg "Total should be 370000" (totalPayroll payLines == 370000.0)
+
+  -- One transaction: company debited + 3 slips created
+  (compAcc2, [slipYazib, slipAli, slipSara]) <- submit company do
+    exerciseCmd compAcc1 RunPayroll with payLines = payLines
+
+  Some c <- queryContractId bank compAcc2
+  assertMsg "Company has 630000" (c.balance == 630000.0)
+  debug ("Company balance after payroll: " <> show c.balance)
+
+  -- Yazib deposits his salary
+  yazibAcc2 <- submit yazib do
+    exerciseCmd slipYazib DepositSalary with accountCid = yazibAcc1
+
+  Some y <- queryContractId bank yazibAcc2
+  assertMsg "Yazib has 150000" (y.balance == 150000.0)
+  debug ("Yazib balance: " <> show y.balance)
+
+  return ()
+
+
+-- Test 2: Not enough money -> NOBODY gets paid (all-or-nothing)
+test_all_or_nothing : Script ()
+test_all_or_nothing = script do
+
+  bank    <- allocatePartyByHint (PartyIdHint "Bank")
+  company <- allocatePartyByHint (PartyIdHint "Evantage")
+  yazib   <- allocatePartyByHint (PartyIdHint "Yazib")
+  ali     <- allocatePartyByHint (PartyIdHint "Ali")
+  sara    <- allocatePartyByHint (PartyIdHint "Sara")
+
+  compAcc1 <- submit bank do
+    createCmd Account with bank = bank, owner = company, balance = 200000.0
+
+  let payLines = makePayLines [yazib, ali, sara] [150000.0, 120000.0, 100000.0]
+
+  -- 370000 needed, only 200000 available -> whole payroll fails
+  submitMustFail company do
+    exerciseCmd compAcc1 RunPayroll with payLines = payLines
+
+  -- Company account untouched
+  Some c <- queryContractId bank compAcc1
+  assertMsg "Balance unchanged" (c.balance == 200000.0)
+  debug "Payroll failed as a whole - no partial payments"
+
+  return ()
+
+
+-- Test 3: Void unclaimed slips (forA_)
+test_void_slips : Script ()
+test_void_slips = script do
+
+  bank    <- allocatePartyByHint (PartyIdHint "Bank")
+  company <- allocatePartyByHint (PartyIdHint "Evantage")
+  yazib   <- allocatePartyByHint (PartyIdHint "Yazib")
+  ali     <- allocatePartyByHint (PartyIdHint "Ali")
+  sara    <- allocatePartyByHint (PartyIdHint "Sara")
+
+  compAcc1 <- submit bank do
+    createCmd Account with bank = bank, owner = company, balance = 1000000.0
+
+  aliAcc1 <- submit bank do
+    createCmd Account with bank = bank, owner = ali, balance = 0.0
+
+  let payLines = makePayLines [yazib, ali, sara] [150000.0, 120000.0, 100000.0]
+
+  (compAcc2, [slipYazib, slipAli, slipSara]) <- submit company do
+    exerciseCmd compAcc1 RunPayroll with payLines = payLines
+
+  -- Company voids Ali's and Sara's slips: 120000 + 100000 refunded
+  compAcc3 <- submit company do
+    exerciseCmd compAcc2 VoidSlips with slipCids = [slipAli, slipSara]
+
+  Some c <- queryContractId bank compAcc3
+  assertMsg "Company has 850000" (c.balance == 850000.0)
+  debug ("Company balance after void: " <> show c.balance)
+
+  -- Ali's slip is gone -> he can't deposit it
+  submitMustFail ali do
+    exerciseCmd slipAli DepositSalary with accountCid = aliAcc1
+
+  return ()
+
+
+-- Test 4: zip and foldl behaviour
+test_helpers : Script ()
+test_helpers = script do
+
+  yazib <- allocatePartyByHint (PartyIdHint "Yazib")
+  ali   <- allocatePartyByHint (PartyIdHint "Ali")
+  sara  <- allocatePartyByHint (PartyIdHint "Sara")
+
+  -- foldl on empty list = starting value
+  assertMsg "Empty payroll = 0" (totalPayroll [] == 0.0)
+
+  -- zip stops at the SHORTER list (3 people, 2 salaries -> 2 lines!)
+  let uneven = makePayLines [yazib, ali, sara] [1000.0, 2000.0]
+  assertMsg "zip truncates to 2" (length uneven == 2)
+  debug "Careful: zip silently drops extra items"
+
+  return ()

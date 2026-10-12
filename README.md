@@ -29,6 +29,8 @@ All projects use **Daml SDK 3.4.11**.
 | 20 | [project20-composition](project20-composition/) | A `Vault` holding a list of `ContractId Asset` references — contract composition with `mapA fetch`, plus pure helper functions (`calculateFee`, `totalWithFee`) reused by nonconsuming `TotalValue`/`TotalWithFees` choices. |
 | 21 | [project21-marketplace](project21-marketplace/) | A capstone marketplace: an `IProduct` interface, propose-accept ordering (`OrderProposal` → `Order`) through an `OrderStatus` lifecycle, an `OutOfStock` exception, and `Catalog` / `RatingsRegistry` collections. |
 | 22 | [project22-delegation](project22-delegation/) | A `Delegation` template letting a delegate spend on the principal's behalf up to a limit, an N-of-M `MultiSigProposal` collecting approvals in a `[Party]` list before `Execute`, and an admin-managed `Whitelist` — delegated authority and list-based access control. |
+| 23 | [project23-optional](project23-optional/) | An `Account` with `Optional Party` / `Optional Decimal` delegate fields — `Some`/`None` transitions via `SetDelegate`/`RemoveDelegate`, `case ... of` pattern matching, `DA.Optional` helpers (`optionalToList`, `fromOptional`, `isSome`), and choices returning a `(ContractId Account, ContractId Payment)` tuple. |
+| 24 | [project24-payroll](project24-payroll/) | A one-transaction `RunPayroll` that debits the company `Account` and issues a `SalarySlip` per employee with `forA` (all-or-nothing on insufficient funds), `VoidSlips` refunding unclaimed slips via `forA_`, and pure list helpers built on `foldl` (`totalPayroll`) and `zip` (`makePayLines`). |
 
 ## Getting started
 

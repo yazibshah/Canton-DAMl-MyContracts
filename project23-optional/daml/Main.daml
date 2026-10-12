@@ -1,0 +1,111 @@
+module Main where
+
+import DA.Optional (optionalToList, fromOptional, isSome)
+
+-- ============ ACCOUNT with OPTIONAL fields ============
+template Account
+  with
+    bank          : Party
+    owner         : Party
+    balance       : Decimal
+    delegate      : Optional Party      -- MAYBE has a delegate
+    delegateLimit : Optional Decimal    -- MAYBE has a limit
+  where
+    ensure balance >= 0.0
+    signatory bank
+    observer owner, optionalToList delegate   -- delegate sees it only if Some
+
+    -- Owner sets a delegate (None -> Some)
+    choice SetDelegate : ContractId Account
+      with
+        agent     : Party
+        maxAmount : Decimal
+      controller owner
+      do
+        assertMsg "Limit must be positive" (maxAmount > 0.0)
+        create this with
+          delegate      = Some agent
+          delegateLimit = Some maxAmount
+
+    -- Owner removes the delegate (Some -> None)
+    choice RemoveDelegate : ContractId Account
+      controller owner
+      do
+        create this with
+          delegate      = None
+          delegateLimit = None
+
+    -- Read the delegate using case ... of
+    nonconsuming choice GetDelegateInfo : Text
+      controller owner
+      do
+        case delegate of
+          Some agent -> return ("Delegate: " <> show agent)
+          None       -> return "No delegate"
+
+    nonconsuming choice HasDelegate : Bool
+      controller owner
+      do
+        return (isSome delegate)
+
+    -- Owner sends money: returns TWO contracts (a tuple)
+    choice Transfer : (ContractId Account, ContractId Payment)
+      with
+        recipient : Party
+        amount    : Decimal
+      controller owner
+      do
+        assertMsg "Insufficient balance" (amount <= balance)
+        newAcc <- create this with balance = balance - amount
+        pay <- create Payment with
+          bank         = bank
+          sender       = owner
+          recipient    = recipient
+          amount       = amount
+          authorizedBy = owner
+        return (newAcc, pay)
+
+    -- Delegate sends money from owner's account
+    choice DelegatedTransfer : (ContractId Account, ContractId Payment)
+      with
+        actor     : Party
+        recipient : Party
+        amount    : Decimal
+      controller actor
+      do
+        assertMsg "Not the delegate" (delegate == Some actor)
+        let maxAmount = fromOptional 0.0 delegateLimit
+        assertMsg "Exceeds delegate limit" (amount <= maxAmount)
+        assertMsg "Insufficient balance" (amount <= balance)
+        newAcc <- create this with balance = balance - amount
+        pay <- create Payment with
+          bank         = bank
+          sender       = owner
+          recipient    = recipient
+          amount       = amount
+          authorizedBy = actor
+        return (newAcc, pay)
+
+-- ============ PAYMENT (money in transit) ============
+template Payment
+  with
+    bank         : Party
+    sender       : Party
+    recipient    : Party
+    amount       : Decimal
+    authorizedBy : Party
+  where
+    ensure amount > 0.0
+    signatory bank
+    observer sender, recipient, authorizedBy
+
+    -- Recipient deposits into their own account
+    choice DepositTo : ContractId Account
+      with accountCid : ContractId Account
+      controller recipient
+      do
+        acc <- fetch accountCid
+        assertMsg "Not your account" (acc.owner == recipient)
+        assertMsg "Different bank" (acc.bank == bank)
+        archive accountCid
+        create acc with balance = acc.balance + amount
